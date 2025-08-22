@@ -43,3 +43,61 @@ def composite_loss(pred, target, flow):
         0.1 * bending_energy_loss(flow) +
         0.01 * jacobian_det_loss(flow)
     )
+
+import torch
+import torch.nn.functional as F
+
+def chamfer_distance(p1: torch.Tensor, p2: torch.Tensor) -> torch.Tensor:
+    """
+    Computes the Chamfer Distance between two point clouds.
+    
+    Args:
+        p1 (torch.Tensor): First point cloud, shape (B, N, 3)
+        p2 (torch.Tensor): Second point cloud, shape (B, M, 3)
+        
+    Returns:
+        torch.Tensor: The Chamfer distance.
+    """
+    dist1 = torch.cdist(p1, p2)
+    dist1, _ = torch.min(dist1, dim=2)
+    
+    dist2 = torch.cdist(p2, p1)
+    dist2, _ = torch.min(dist2, dim=2)
+    
+    return torch.mean(dist1) + torch.mean(dist2)
+
+def laplacian_smoothing_loss(flow: torch.Tensor, xyz: torch.Tensor) -> torch.Tensor:
+    """
+    Penalizes local rigidity in the deformation field.
+    Finds k-nearest neighbors and encourages their flow vectors to be similar.
+    
+    Args:
+        flow (torch.Tensor): The predicted flow, shape (B, N, 3)
+        xyz (torch.Tensor): The original point coordinates, shape (B, N, 3)
+        
+    Returns:
+        torch.Tensor: The smoothing loss.
+    """
+    k = 8
+    # Find k-nearest neighbors
+    dist = torch.cdist(xyz, xyz)
+    _, knn_idx = torch.topk(dist, k, dim=-1, largest=False)
+    
+    # Index the flow to get neighbor flows
+    B, N, _ = flow.shape
+    batch_indices = torch.arange(B).view(B, 1, 1).to(flow.device)
+    neighbor_flow = flow[batch_indices, knn_idx] # (B, N, k, 3)
+    
+    # Calculate the difference
+    diff = flow.unsqueeze(2) - neighbor_flow # (B, N, k, 3)
+    
+    return torch.mean(torch.sum(diff ** 2, dim=-1))
+
+def composite_loss_pointcloud(warped_xyz, fixed_xyz, flow, original_moving_xyz, smooth_weight=0.1):
+    """
+    Composite loss for point cloud registration.
+    """
+    match_loss = chamfer_distance(warped_xyz, fixed_xyz)
+    smooth_loss = laplacian_smoothing_loss(flow, original_moving_xyz)
+    
+    return match_loss + smooth_weight * smooth_loss
