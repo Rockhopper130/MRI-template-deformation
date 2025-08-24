@@ -1,547 +1,586 @@
-"""
-SCoRe-Net: Spherical Cone-Equivariant Registration Network
-Target runtime: PyTorch 2.8.0+cu128, CUDA Toolkit 12.8
-
-This is a reference implementation that avoids deprecated or version-fragile APIs.
-It uses:
-  - torch (2.8)
-  - e3nn (tested with >=0.6; only stable, widely available modules are used)
-  - torch_geometric (>=2.4 recommended, but code does not depend on brittle ops)
-
-Main modules:
-  - IcoSphere: deterministic icosahedral tessellation + hierarchy
-  - SphericalPreprocessor: center → spherical sample → graph construction
-  - EquivariantEdgeConv: SO(3)-equivariant message passing via e3nn TensorProduct
-  - EquivariantUNet: Siamese encoder/decoder on spherical graphs
-  - SirenDecoder: continuous deformation field with FiLM conditioning
-  - ScoreNet: end-to-end registration model
-  - Losses: LNCC (local NCC), smoothness via ∥∇u∥², Jacobian folding penalty
-
-Notes
------
-* All functions/classes are self-contained and use standard, available APIs from
-  torch, e3nn, and (optionally) torch_geometric. If torch_geometric is not
-  installed, the code falls back to an internal kNN graph builder.
-* The e3nn parts use o3.Irreps, o3.spherical_harmonics, and o3.TensorProduct
-  combined with a small MLP for weights (a stable, well-supported pattern).
-* Pooling/upsampling on the sphere is implemented using the deterministic
-  icosahedral hierarchy provided by IcoSphere, avoiding deprecated pyg ops.
-* You can train directly on point clouds (x,y,z,intensity). For voxel MRI, sample
-  a surface point cloud (e.g., cortical mesh or isosurface) before using this model.
-"""
-from __future__ import annotations
-
-import math
-from dataclasses import dataclass
-from typing import List, Tuple, Optional, Dict
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+from torch_geometric.data import Data
+from torch_geometric.nn import MessagePassing
+from torch_geometric.utils import add_self_loops
 
-try:
-    from torch_geometric.data import Data
-    _HAVE_PYG = True
-except Exception:
-    _HAVE_PYG = False
-    Data = object  # Minimal stub so type hints still work
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SECTION 1: ICOSAHEDRAL GRID GENERATION
+# Corresponds to Section 2.2 of the paper.
+# This helper class generates the vertices and connectivity for a sphere
+# tessellated from a recursively subdivided icosahedron.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-from e3nn import o3
-from e3nn.nn import FullyConnectedNet  # stable MLP helper in e3nn
-
-
-# -----------------------------
-# Geometry: Icosahedral sphere
-# -----------------------------
-
-class IcoSphere:
-    """Generates an icosahedral sphere and hierarchical vertex mappings.
-
-    Provides (V_l, F_l) for levels l=0..L, plus a parent map from level l to l-1
-    to enable pooling and unpooling without relying on external graph libs.
+class IcosahedralGrid:
     """
-    def __init__(self, levels: int = 3, radius: float = 1.0, device: str | torch.device = "cpu"):
-        assert levels >= 0
-        self.levels = levels
-        self.radius = radius
-        self.device = torch.device(device)
-        self.vertices: List[torch.Tensor] = []  # list of (N_l,3)
-        self.faces: List[torch.Tensor] = []     # list of (M_l,3) (indices)
-        self.parent: List[Optional[torch.Tensor]] = []  # parent idx of each v at level l in level l-1
-        self._build()
+    Generates a hierarchical icosahedral grid.
 
-    @staticmethod
-    def _base_icosahedron(device):
-        t = (1.0 + math.sqrt(5.0)) / 2.0
-        verts = torch.tensor([
-            (-1,  t,  0), ( 1,  t,  0), (-1, -t,  0), ( 1, -t,  0),
-            ( 0, -1,  t), ( 0,  1,  t), ( 0, -1, -t), ( 0,  1, -t),
-            ( t,  0, -1), ( t,  0,  1), (-t,  0, -1), (-t,  0,  1)
-        ], dtype=torch.float32, device=device)
-        faces = torch.tensor([
-            (0,11,5), (0,5,1), (0,1,7), (0,7,10), (0,10,11),
-            (1,5,9), (5,11,4), (11,10,2), (10,7,6), (7,1,8),
-            (3,9,4), (3,4,2), (3,2,6), (3,6,8), (3,8,9),
-            (4,9,5), (2,4,11), (6,2,10), (8,6,7), (9,8,1)
-        ], dtype=torch.long, device=device)
-        verts = IcoSphere._normalize(verts)
-        return verts, faces
+    This class creates a quasi-uniform tessellation of a sphere by starting
+    with a base icosahedron and recursively subdividing its triangular faces.
+    The resulting vertices and edges form the basis for the spherical graph CNN.
+    """
+    def __init__(self, subdivision_level=0):
+        # Base icosahedron vertices (normalized to unit sphere)
+        t = (1.0 + np.sqrt(5.0)) / 2.0
+        vertices = np.array([
+            [-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0],
+            [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t],
+            [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]
+        ])
+        vertices /= np.linalg.norm(vertices, axis=1, keepdims=True)
 
-    @staticmethod
-    def _normalize(v):
-        v = F.normalize(v, dim=-1)
-        return v
+        # Base icosahedron faces (20 triangles)
+        faces = np.array([
+            [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+            [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+            [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+            [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
+        ])
 
-    def _subdivide(self, verts, faces):
-        """Loop subdivision: split each triangle, project midpoints to sphere."""
-        # midpoint cache to avoid duplicates
-        cache: Dict[Tuple[int,int], int] = {}
-        def midpoint(i, j):
-            key = (min(i, j), max(i, j))
-            if key in cache:
-                return cache[key]
-            m = F.normalize((verts[i] + verts[j]) * 0.5, dim=0)
-            verts.append(m)
-            idx = len(verts) - 1
-            cache[key] = idx
-            return idx
+        # Recursively subdivide the icosahedron
+        for _ in range(subdivision_level):
+            new_faces = []
+            midpoint_cache = {}
 
-        verts = [v for v in verts]  # list of tensors
-        new_faces = []
-        for tri in faces.tolist():
-            i, j, k = tri
-            a = midpoint(i, j)
-            b = midpoint(j, k)
-            c = midpoint(k, i)
-            new_faces += [
-                (i, a, c), (a, j, b), (c, b, k), (a, b, c)
-            ]
-        verts = torch.stack(verts, dim=0)
-        faces = torch.tensor(new_faces, dtype=torch.long, device=verts.device)
-        return verts, faces
+            for face in faces:
+                v1, v2, v3 = face
+                
+                def get_midpoint(p1, p2):
+                    nonlocal vertices
+                    smaller, greater = min(p1, p2), max(p1, p2)
+                    if (smaller, greater) in midpoint_cache:
+                        return midpoint_cache[(smaller, greater)]
+                    
+                    mid = (vertices[p1] + vertices[p2]) / 2.0
+                    mid /= np.linalg.norm(mid)
+                    vertices = np.vstack([vertices, mid])
+                    mid_idx = len(vertices) - 1
+                    midpoint_cache[(smaller, greater)] = mid_idx
+                    return mid_idx
 
-    def _build(self):
-        v0, f0 = self._base_icosahedron(self.device)
-        self.vertices = [v0 * self.radius]
-        self.faces = [f0]
-        self.parent = [None]
-        for l in range(1, self.levels + 1):
-            v_prev = self.vertices[-1]
-            f_prev = self.faces[-1]
-            v, f = self._subdivide(v_prev, f_prev)
-            self.vertices.append(v * self.radius)
-            self.faces.append(f)
-            # parent mapping via nearest neighbor on previous level
-            with torch.no_grad():
-                d = torch.cdist(v, v_prev)
-                parent = d.argmin(dim=1)
-            self.parent.append(parent)
+                m12 = get_midpoint(v1, v2)
+                m23 = get_midpoint(v2, v3)
+                m31 = get_midpoint(v3, v1)
 
-    def neighbors_knn(self, level: int, k: int = 6) -> torch.Tensor:
-        """Return undirected edge index (2,E) via kNN on the sphere."""
-        pos = self.vertices[level]
-        # k+1 because self is nearest; we will drop self edges
-        d = torch.cdist(pos, pos)
-        knn = d.topk(k=k+1, largest=False).indices[:, 1:]
-        src = torch.arange(pos.size(0), device=pos.device).unsqueeze(1).expand_as(knn)
-        edge_index = torch.stack([src.reshape(-1), knn.reshape(-1)], dim=0)
-        # make undirected
-        edge_index = torch.cat([edge_index, edge_index.flip(0)], dim=1)
-        return edge_index
+                new_faces.extend([[v1, m12, m31], [v2, m23, m12], 
+                                  [v3, m31, m23], [m12, m23, m31]])
+            faces = np.array(new_faces)
+
+        self.vertices = torch.from_numpy(vertices).float()
+        
+        # Create edge index for PyTorch Geometric
+        edges = np.vstack([faces[:, [0, 1]], faces[:, [1, 2]], faces[:, [2, 0]]])
+        edges = np.sort(edges, axis=1)
+        edges = np.unique(edges, axis=0)
+        self.edge_index = torch.from_numpy(edges.T).long()
 
 
-# -------------------------------------
-# Graph container independent of PyG
-# -------------------------------------
-@dataclass
-class SphereGraph:
-    pos: torch.Tensor            # (N,3) cart positions on sphere
-    x: torch.Tensor              # node features shaped to match irreps
-    edge_index: torch.Tensor     # (2,E)
-    level: int                   # icosphere level
-    parent: Optional[torch.Tensor] = None  # mapping to parent level (N,)
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SECTION 2: VOLUMETRIC TO SPHERICAL PARAMETERIZATION
+# Corresponds to Section 2.1 of the paper.
+# This module converts a 3D Cartesian volume into a multi-channel spherical
+# signal defined on the icosahedral grid.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+class VolumetricSphericalParameterization(nn.Module):
+    """
+    Performs ray-casting and feature sampling to create a spherical graph.
 
-# --------------------------------------------
-# Utilities: irreps feature packing/unpacking
-# --------------------------------------------
-
-def make_initial_irreps() -> o3.Irreps:
-    # 1 scalar (intensity) + 1 vector (xyz from center)
-    return o3.Irreps("1x0e + 1x1o")
-
-
-def pack_initial_features(intensity: torch.Tensor, pos: torch.Tensor) -> torch.Tensor:
-    """Pack intensity + position into a flat (N, C) matching Irreps '1x0e + 1x1o'."""
-    assert intensity.ndim == 2 and intensity.size(1) == 1
-    assert pos.ndim == 2 and pos.size(1) == 3
-    return torch.cat([intensity, pos], dim=1)
-
-
-# -------------------------------------------------
-# Spherical harmonics + equivariant edge conv block
-# -------------------------------------------------
-class EquivariantEdgeConv(nn.Module):
-    def __init__(self,
-                 irreps_in: o3.Irreps,
-                 irreps_hidden: o3.Irreps,
-                 sh_lmax: int = 2,
-                 radial_mlp_hidden: int = 64):
+    This module takes a 3D MRI volume and an IcosahedralGrid, and for each
+    vertex on the grid (representing a direction), it casts a ray from the
+    center of the volume. It samples features (radial distance to the surface
+    and MRI intensity at normalized depths) along this ray.
+    """
+    def __init__(self, grid_vertices, radial_samples=3):
         super().__init__()
-        self.irreps_in = o3.Irreps(irreps_in)
-        self.irreps_out = o3.Irreps(irreps_hidden)
-        self.irreps_sh = o3.Irreps.spherical_harmonics(lmax=sh_lmax)
+        self.grid_vertices = nn.Parameter(grid_vertices, requires_grad=False)
+        self.num_vertices = grid_vertices.shape[0]
+        self.radial_samples = radial_samples
 
-        # this handles instructions internally
-        self.tp = o3.FullyConnectedTensorProduct(
-            self.irreps_in,
-            self.irreps_sh,
-            self.irreps_out,
-            shared_weights=False,
+    def forward(self, volume, brain_mask):
+        # Assumes volume is a single [D, H, W] tensor and pre-centered.
+        D, H, W = volume.shape
+        center = torch.tensor([D / 2, H / 2, W / 2], device=volume.device)
+        
+        # 1. Ray Casting and Surface Shape Feature Extraction
+        ray_directions = self.grid_vertices
+        
+        # This is a simplified search for the surface. A more robust implementation
+        # would use a more sophisticated edge detection or surface finding algorithm.
+        # Here we march along each ray until we exit the brain mask.
+        max_radius = torch.tensor([D, H, W], dtype=torch.float).norm() / 2.0
+        radii = torch.linspace(0, max_radius, steps=int(max_radius), device=volume.device)
+        
+        ray_points = center.view(1, 3) + torch.einsum("r,vd->rvd", radii, ray_directions)
+        
+        # Normalize coordinates for grid_sample
+        norm_coords = ray_points / torch.tensor([D-1, H-1, W-1], device=volume.device) * 2 - 1
+        
+        # Sample the brain mask along all rays
+        mask_values = F.grid_sample(
+            brain_mask.view(1, 1, D, H, W),
+            norm_coords.view(1, -1, 1, 1, 3),
+            mode='bilinear', padding_mode='zeros', align_corners=True
+        ).view(len(radii), self.num_vertices)
+        
+        # Find the first point where the mask value drops below a threshold (e.g., 0.5)
+        is_outside = mask_values < 0.5
+        surface_indices = torch.argmax(is_outside.int(), dim=0)
+        surface_radius = radii[surface_indices] # Shape: [num_vertices]
+
+        # 2. Volumetric Texture Feature Sampling
+        feature_channels = [surface_radius.unsqueeze(1)]
+        normalized_depths = torch.linspace(0.25, 0.75, self.radial_samples, device=volume.device)
+        
+        for depth in normalized_depths:
+            sample_radii = surface_radius * depth
+            sample_points = center.view(1, 3) + sample_radii.unsqueeze(1) * ray_directions
+            norm_sample_coords = sample_points / torch.tensor([D-1, H-1, W-1], device=volume.device) * 2 - 1
+            
+            intensity_values = F.grid_sample(
+                volume.view(1, 1, D, H, W),
+                norm_sample_coords.view(1, self.num_vertices, 1, 1, 3),
+                mode='bilinear', padding_mode='border', align_corners=True
+            ).view(self.num_vertices, 1)
+            feature_channels.append(intensity_values)
+            
+        # Combine features into a single tensor for the graph
+        features = torch.cat(feature_channels, dim=1)
+        return features
+
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SECTION 3: SPHERICAL ENCODER AND HYBRID ARCHITECTURE
+# Corresponds to Section 3 of the paper.
+# Defines the novel network layers and the main SphereMorph-Net model.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+class ConicalRadialSamplingModule(nn.Module):
+    """
+    CRSM: Initial feature extraction layer for the spherical graph.
+    Corresponds to Section 3.2.1.
+    """
+    def __init__(self, in_channels, out_channels, edge_index):
+        super().__init__()
+        self.edge_index, _ = add_self_loops(edge_index)
+        
+        # MLP for radially-sampled features (point-wise features)
+        self.radial_mlp = nn.Sequential(
+            nn.Linear(in_channels, out_channels // 2),
+            nn.LeakyReLU(0.2)
         )
-
-        # Radial MLP to produce weights for TP
-        self.radial_mlp = FullyConnectedNet([1, radial_mlp_hidden, self.tp.weight_numel], act=F.silu)
-
-        # Gated nonlinearity setup
-        self.scalar_irreps = o3.Irreps([ir for ir in self.irreps_out if ir.ir.l == 0])
-        self.nonscalar_irreps = o3.Irreps([ir for ir in self.irreps_out if ir.ir.l != 0])
-
-        self.lin_scalar = o3.Linear(self.irreps_out, self.scalar_irreps)
-        self.lin_nonscalar = o3.Linear(self.irreps_out, self.nonscalar_irreps) if self.nonscalar_irreps.dim > 0 else None
-        self.lin_gates = o3.Linear(self.irreps_out, self.scalar_irreps) if self.nonscalar_irreps.dim > 0 else None
-        self.act_scalar = nn.SiLU()
-        self.act_gate = nn.Sigmoid()
-
-    def forward(self, x: torch.Tensor, edge_index: torch.Tensor, pos: torch.Tensor) -> torch.Tensor:
-        src, dst = edge_index
-        edge_vec = pos[dst] - pos[src]
-        edge_len = edge_vec.norm(dim=-1, keepdim=True).clamp(min=1e-8)
-        edge_dir = edge_vec / edge_len
-
-        # spherical harmonics on unit directions
-        Y = o3.spherical_harmonics(list(range(self.irreps_sh.lmax + 1)), edge_dir, normalize=True)
-
-        # radial weights
-        w = self.radial_mlp(edge_len)
-
-        # tensor product messages
-        m = self.tp(x[src], Y, w)
-
-        # aggregate at destinations
-        out = torch.zeros(
-            x.size(0),
-            m.size(1),   # use the output feature dimension, not x’s
-            device=x.device,
-            dtype=x.dtype
+        # Simple graph aggregation for conical sampling (local neighborhood)
+        self.conical_aggregator = MessagePassing(aggr='mean')
+        
+        self.conical_mlp = nn.Sequential(
+            nn.Linear(in_channels, out_channels // 2),
+            nn.LeakyReLU(0.2)
         )
-        out = out.index_add(0, dst, m)
-
-        # gated activation
-        if self.nonscalar_irreps.dim == 0:
-            return self.act_scalar(self.lin_scalar(out))
-        s = self.act_scalar(self.lin_scalar(out))
-        ns = self.lin_nonscalar(out)
-        g = self.act_gate(self.lin_gates(out))
-        return s + (g * ns)
-
-# ---------------------------------------
-# Encoder/Decoder on spherical hierarchy
-# ---------------------------------------
-class EquivariantEncoder(nn.Module):
-    def __init__(self, levels: int, width: int = 32, sh_lmax: int = 2):
-        super().__init__()
-        self.levels = levels
-        self.ir_in = make_initial_irreps()  # 1x0e + 1x1o
-        widths = [width * (2 ** l) for l in range(levels + 1)]
-        # represent widths using only scalars and vectors to keep gating simple
-        def make_ir(w):
-            # approx split: half scalars, half vectors
-            s = max(1, w // 2)
-            v = max(1, w - s)
-            return o3.Irreps(f"{s}x0e + {v}x1o")
-        self.blocks = nn.ModuleList()
-        self.proj_in = o3.Linear(self.ir_in, make_ir(width))
-        ir_prev = make_ir(width)
-        for l in range(levels):
-            ir_next = make_ir(widths[l+1])
-            self.blocks.append(EquivariantEdgeConv(ir_prev, ir_next, sh_lmax=sh_lmax))
-            ir_prev = ir_next
-        self.ir_out = ir_prev
-
-    def forward(self, graphs: List[SphereGraph]) -> List[torch.Tensor]:
-        feats: List[torch.Tensor] = []
-        x = self.proj_in(graphs[0].x)
-        for l in range(self.levels):
-            g = graphs[l]
-            x = self.blocks[l](x, g.edge_index, g.pos)
-            # pool to next level using fixed parent map (mean over children)
-            parent = graphs[l+1].parent
-            if parent is None:
-                feats.append(x)
-                continue
-            num_par = graphs[l+1].pos.size(0)
-            pooled = torch.zeros(num_par, x.size(1), device=x.device, dtype=x.dtype)
-            pooled = pooled.index_add(0, parent, x)
-            # average by child counts
-            counts = torch.zeros(num_par, device=x.device).index_add(0, parent, torch.ones(x.size(0), device=x.device))
-            counts = counts.clamp(min=1).unsqueeze(1)
-            x = pooled / counts
-            feats.append(x)
-        feats.append(x)
-        return feats  # low→high level features (pooled)
-
-
-class EquivariantDecoder(nn.Module):
-    def __init__(self, levels: int, enc_irreps: List[o3.Irreps], width: int = 32, sh_lmax: int = 2):
-        super().__init__()
-        self.levels = levels
-        # Build blocks from top (coarsest) back to level 0 (finest)
-        self.blocks = nn.ModuleList()
-        self.up_lin = nn.ModuleList()
-        for l in reversed(range(levels)):
-            # concatenate skip from encoder at this level with upsampled prev
-            ir_in = enc_irreps[l] + enc_irreps[l+1]  # simple concat in irreps space
-            ir_out = enc_irreps[l]
-            self.blocks.append(EquivariantEdgeConv(ir_in, ir_out, sh_lmax=sh_lmax))
-            self.up_lin.append(o3.Linear(enc_irreps[l+1], enc_irreps[l]))
-
-    def forward(self, graphs: List[SphereGraph], enc_feats: List[torch.Tensor]) -> torch.Tensor:
-        # enc_feats: list per level (0..L) where L is top; graphs[0] is finest
-        x_up = enc_feats[-1]
-        for i, l in enumerate(reversed(range(self.levels))):
-            # unpool: tile parent feature to its children via parent map
-            parent = graphs[l+1].parent
-            child_n = graphs[l].pos.size(0)
-            x_child = x_up[parent]  # broadcast down
-            x_child = self.up_lin[i](x_child)
-            # concat skip feature from encoder at level l (recompute local conv)
-            x_cat = torch.cat([enc_feats[l], x_child], dim=-1)
-            x_up = self.blocks[i](x_cat, graphs[l].edge_index, graphs[l].pos)
-        return x_up  # finest level latent
-
-
-# ---------------------------
-# SIREN with FiLM conditioning
-# ---------------------------
-class SirenLayer(nn.Module):
-    def __init__(self, in_dim, out_dim, w0=30.0):
-        super().__init__()
-        self.lin = nn.Linear(in_dim, out_dim)
-        self.w0 = w0
+        
+        # Final MLP to combine features
+        self.final_mlp = nn.Sequential(
+            nn.Linear(out_channels, out_channels),
+            nn.LayerNorm(out_channels),
+            nn.LeakyReLU(0.2)
+        )
 
     def forward(self, x):
-        return torch.sin(self.w0 * self.lin(x))
+        # Radial path
+        radial_features = self.radial_mlp(x)
+        
+        # Conical path
+        # Propagate node features to neighbors
+        conical_aggregated = self.conical_aggregator.propagate(self.edge_index, x=x)
+        conical_features = self.conical_mlp(conical_aggregated)
+        
+        # Concatenate and process
+        combined_features = torch.cat([radial_features, conical_features], dim=1)
+        return self.final_mlp(combined_features)
 
-
-class FiLM(nn.Module):
-    def __init__(self, latent_dim, feat_dim):
-        super().__init__()
-        self.to_gamma = nn.Linear(latent_dim, feat_dim)
-        self.to_beta = nn.Linear(latent_dim, feat_dim)
-
-    def forward(self, h, z):
-        gamma = self.to_gamma(z)
-        beta = self.to_beta(z)
-        return gamma * h + beta
-
-
-class SirenDecoder(nn.Module):
-    def __init__(self, latent_irreps: o3.Irreps, hidden: int = 128, layers: int = 4):
-        super().__init__()
-        # extract only scalars (l == 0)
-        self.latent_ir = o3.Irreps([ir for ir in latent_irreps if ir.ir.l == 0])
-        self.latent_dim = self.latent_ir.dim
-        self.lat_proj = o3.Linear(latent_irreps, self.latent_ir)
-        self.inp = nn.Linear(3, hidden)
-        self.siren = nn.ModuleList([SirenLayer(hidden, hidden) for _ in range(layers)])
-        self.film = nn.ModuleList([FiLM(self.latent_dim, hidden) for _ in range(layers)])
-        self.out = nn.Linear(hidden, 3)  # 3D displacement
-
-    def forward(self, coords: torch.Tensor, latent: torch.Tensor) -> torch.Tensor:
-        # coords: (M,3), latent: (N, C) at sphere nodes — we aggregate to a single
-        # global latent by average over nodes (you may switch to attention or grid sample)
-        z = self.lat_proj(latent)
-        z = z.mean(dim=0, keepdim=True)
-        h = self.inp(coords)
-        for layer, mod in zip(self.siren, self.film):
-            h = layer(h)
-            h = mod(h, z)
-        u = self.out(h)
-        return u
-
-
-# ---------------------------------
-# Local NCC (LNCC) and regularizers
-# ---------------------------------
-class LNCC(nn.Module):
-    def __init__(self, radius: float = 0.02, eps: float = 1e-6):
-        super().__init__()
-        self.radius = radius
-        self.eps = eps
-
-    def forward(self, pf_pos, pf_int, pm_warp_pos, pm_int):
-        """Local normalized cross-correlation over spherical neighborhoods.
-        pf/pm_int: (N,1) intensities sampled at pf_pos / pm_warp_pos (match cardinality)
-        """
-        # kNN neighborhoods by radius on pf_pos
-        d = torch.cdist(pf_pos, pf_pos)
-        mask = (d <= self.radius).float()
-        # local means
-        mu_f = (mask @ pf_int) / (mask.sum(dim=1, keepdim=True).clamp(min=1.))
-        mu_m = (mask @ pm_int) / (mask.sum(dim=1, keepdim=True).clamp(min=1.))
-        # numerators / denominators
-        num = (mask @ (pf_int * pm_int)) - (mask @ pf_int) * (mask @ pm_int) / mask.sum(dim=1, keepdim=True).clamp(min=1.)
-        var_f = (mask @ (pf_int ** 2)) - (mask @ pf_int) ** 2 / mask.sum(dim=1, keepdim=True).clamp(min=1.)
-        var_m = (mask @ (pm_int ** 2)) - (mask @ pm_int) ** 2 / mask.sum(dim=1, keepdim=True).clamp(min=1.)
-        lncc = num / (torch.sqrt(var_f * var_m) + self.eps)
-        # maximize NCC -> minimize negative
-        return -lncc.mean()
-
-
-def smoothness_loss(coords, disp):
-    """E[||∇u||^2] via autograd Jacobian-vector products.
-    coords: (M,3), disp: (M,3) as u(x)
+class GaugeEquivariantIcoConv(MessagePassing):
     """
-    grad = []
-    for i in range(3):
-        grad_i = torch.autograd.grad(disp[:, i].sum(), coords, create_graph=True)[0]
-        grad.append(grad_i)
-    J = torch.stack(grad, dim=-1)  # (M,3,3) where J[a,b]=∂u_b/∂x_a
-    return (J.pow(2).sum(dim=[1,2]).mean())
+    Simplified Gauge Equivariant Icosahedral Convolution.
+    Corresponds to Section 3.2.2.
+    
+    NOTE: A true implementation is extremely complex. This class serves as a
+    structurally-correct stand-in using a standard MessagePassing scheme, which
+    is the foundation for most GNNs as suggested by the paper. It learns features
+    from local neighborhoods on the icosahedral graph.
+    """
+    def __init__(self, in_channels, out_channels):
+        super().__init__(aggr='mean') # 'mean' aggregation
+        self.lin = nn.Linear(in_channels, out_channels)
+        self.lin_self = nn.Linear(in_channels, out_channels)
 
+    def forward(self, x, edge_index):
+        # Add self-loops to include node's own features
+        edge_index_sl, _ = add_self_loops(edge_index, num_nodes=x.size(0))
+        
+        # Transform message from neighbor nodes
+        out = self.propagate(edge_index_sl, x=self.lin(x))
+        
+        # Transform node's own features and add
+        out = out + self.lin_self(x)
+        return out
 
-def jacobian_folding_loss(coords, disp):
-    grad = []
-    for i in range(3):
-        grad_i = torch.autograd.grad(disp[:, i].sum(), coords, create_graph=True)[0]
-        grad.append(grad_i)
-    J = torch.stack(grad, dim=-1)  # (M,3,3)
-    Jphi = torch.eye(3, device=coords.device).expand(coords.size(0), 3, 3) + J
-    det = torch.det(Jphi)
-    return F.relu(-det).mean()
+    def message(self, x_j):
+        # x_j has shape [E, out_channels]
+        return x_j
 
-
-# -------------------------
-# Spherical pre-processing
-# -------------------------
-class SphericalPreprocessor(nn.Module):
-    def __init__(self, icosphere: IcoSphere, knn_k: int = 3):
+class IcoPool(nn.Module):
+    """ Downsampling for the icosahedral grid. """
+    def __init__(self, mode='mean'):
         super().__init__()
-        self.ico = icosphere
-        self.knn_k = knn_k
+        self.mode = mode
+    
+    def forward(self, x, coarser_grid_map):
+        # coarser_grid_map tells us which fine vertices map to which coarse vertex
+        # This is a simplified pooling; in practice, this mapping needs to be pre-computed.
+        # For demonstration, we assume a simple averaging.
+        # Let's use a dummy implementation for shape transformation
+        num_coarse_nodes = len(torch.unique(coarser_grid_map))
+        out = torch.zeros(num_coarse_nodes, x.shape[1], device=x.device)
+        out = out.index_add_(0, coarser_grid_map, x) # Sum features
+        if self.mode == 'mean':
+            counts = torch.zeros(num_coarse_nodes, 1, device=x.device)
+            counts = counts.index_add_(0, coarser_grid_map, torch.ones_like(x))
+            out = out / counts.clamp(min=1)
+        return out
 
-    def build_graphs(self, points_xyz: torch.Tensor, intensity: torch.Tensor, neighbor_k: int = 6) -> List[SphereGraph]:
-        # center to COM
-        com = points_xyz.mean(dim=0, keepdim=True)
-        xyz0 = points_xyz - com
-        # sample intensity to sphere vertices at each level by nearest neighbor on the *ray*
-        graphs: List[SphereGraph] = []
-        for l in range(self.ico.levels + 1):
-            pos = self.ico.vertices[l].to(points_xyz.device)
-            # project sphere vertex to ray and find nearest point along ray direction
-            # use cosine similarity to pick points close to direction
-            dir = F.normalize(pos, dim=-1)  # (N,3)
-            dots = torch.matmul(F.normalize(xyz0, dim=-1), dir.t())  # (P,N)
-            idx = dots.topk(k=self.knn_k, dim=0).indices  # (k,N)
-            # average intensities of top-k along each ray
-            inten = intensity[idx].mean(dim=0)  # (N,1)
-            feats = pack_initial_features(inten, pos)
-            edge_index = self.ico.neighbors_knn(l, k=neighbor_k).to(points_xyz.device)
-            parent = self.ico.parent[l]
-            graphs.append(SphereGraph(pos=pos, x=feats, edge_index=edge_index, level=l, parent=parent))
-        return graphs
-
-
-# ---------------
-# End-to-end model
-# ---------------
-class ScoreNet(nn.Module):
-    def __init__(self, levels: int = 3, width: int = 32, sh_lmax: int = 2):
+class IcoUnpool(nn.Module):
+    """ Upsampling for the icosahedral grid (e.g., nearest neighbor). """
+    def __init__(self, mode='nearest'):
         super().__init__()
-        self.ico = IcoSphere(levels=levels)
-        self.prep = SphericalPreprocessor(self.ico)
-        self.encoder = EquivariantEncoder(levels=levels, width=width, sh_lmax=sh_lmax)
-        # keep track of irreps at each level for decoder
-        enc_irreps = []
-        # simulate forward to capture irreps progression
-        w0 = width
-        widths = [w0 * (2 ** l) for l in range(levels + 1)]
-        def make_ir(w):
-            s = max(1, w // 2)
-            v = max(1, w - s)
-            return o3.Irreps(f"{s}x0e + {v}x1o")
-        enc_irreps = [make_ir(w) for w in widths]
-        self.decoder = EquivariantDecoder(levels=levels, enc_irreps=enc_irreps, width=width, sh_lmax=sh_lmax)
-        self.siren = SirenDecoder(latent_irreps=enc_irreps[0], hidden=128, layers=4)
-        self.lncc = LNCC(radius=0.05)
+        self.mode = mode
 
-    def forward(self,
-                pf_points: torch.Tensor, pf_int: torch.Tensor,
-                pm_points: torch.Tensor, pm_int: torch.Tensor,
-                neighbor_k: int = 6):
-        # Build spherical graphs (same ico for both)
-        gF = self.prep.build_graphs(pf_points, pf_int, neighbor_k)
-        gM = self.prep.build_graphs(pm_points, pm_int, neighbor_k)
-        # Siamese encoder
-        fF = self.encoder(gF)
-        fM = self.encoder(gM)
-        # Correlate by concatenation at each level (simple but effective)
-        fCat = [torch.cat([a, b], dim=-1) for a, b in zip(fF, fM)]
-        # Decode to finest latent
-        z = self.decoder(gF, fCat)
-        # SIREN: query displacements for moving points
-        pm_points = pm_points.requires_grad_(True)
-        disp = self.siren(pm_points, z)
-        pm_warp = pm_points + disp
-        # sample moving intensities remain associative; caller may resample as needed
-        # Loss terms
-        l_sim = self.lncc(gF[0].pos, gF[0].x[:, :1], gF[0].pos, gM[0].x[:, :1])  # proxy LNCC at sphere nodes
-        l_smooth = smoothness_loss(pm_points, disp)
-        l_jac = jacobian_folding_loss(pm_points, disp)
-        return {
-            "pm_warp": pm_warp,
-            "disp": disp,
-            "latent": z,
-            "losses": {"sim": l_sim, "smooth": l_smooth, "jac": l_jac}
-        }
+    def forward(self, x, finer_grid_map):
+        # finer_grid_map is the inverse of the coarser_grid_map
+        return x[finer_grid_map]
 
+class SphereMorphNet(nn.Module):
+    """
+    The main SphereMorph-Net model architecture.
+    Corresponds to Section 3.1. A U-Net style encoder-decoder on the sphere.
+    """
+    def __init__(self, in_channels, n_classes=3):
+        super().__init__()
+        
+        # This is a simplified blueprint. A real implementation would need
+        # pre-computed grid hierarchies and pooling maps.
+        # For now, we define the blocks but cannot run a forward pass without data.
+        
+        # --- Encoder ---
+        # Assuming we have grids and edge indices for different resolutions
+        # e.g., grid_l0, edge_index_l0, grid_l1, edge_index_l1...
+        
+        # self.crs = ConicalRadialSamplingModule(...)
+        # self.enc_conv1 = GaugeEquivariantIcoConv(...)
+        # self.pool1 = IcoPool()
+        # self.enc_conv2 = GaugeEquivariantIcoConv(...)
+        # self.pool2 = IcoPool()
 
-# -----------------
-# Minimal train loop
-# -----------------
-class ScoreNetTrainer:
-    def __init__(self, model: ScoreNet, lr: float = 1e-3, lam_smooth: float = 1.0, lam_jac: float = 1.0):
-        self.model = model
-        self.opt = torch.optim.AdamW(model.parameters(), lr=lr)
-        self.lam_smooth = lam_smooth
-        self.lam_jac = lam_jac
-
-    def step(self, pf_pts, pf_int, pm_pts, pm_int):
-        self.opt.zero_grad()
-        out = self.model(pf_pts, pf_int, pm_pts, pm_int)
-        l = out["losses"]["sim"] + self.lam_smooth * out["losses"]["smooth"] + self.lam_jac * out["losses"]["jac"]
-        l.backward()
-        self.opt.step()
-        return {k: v.detach().item() for k, v in out["losses"].items()}
+        # --- Bottleneck ---
+        # self.bottleneck = GaugeEquivariantIcoConv(...)
+        
+        # --- Decoder ---
+        # self.unpool1 = IcoUnpool()
+        # self.dec_conv1 = GaugeEquivariantIcoConv(...)
+        # self.unpool2 = IcoUnpool()
+        # self.dec_conv2 = GaugeEquivariantIcoConv(...)
+        
+        # --- S2C Head ---
+        # 1x1 graph convolution to get 3 displacement channels
+        # self.s2c_conv = GaugeEquivariantIcoConv(..., out_channels=3)
+        print("SphereMorphNet model initialized. NOTE: This is an architectural blueprint. \
+A forward pass requires pre-computed grid hierarchies and data loaders.")
+              
+    def forward(self, graph_moving, graph_fixed):
+        # The input would be two graph objects concatenated on the feature dim.
+        # x = torch.cat([graph_moving.x, graph_fixed.x], dim=1)
+        # e.g., x1 = self.enc_conv1(self.crs(x), edge_index_l0)
+        # x2 = self.enc_conv2(self.pool1(x1), edge_index_l1)
+        # ... and so on through the U-Net structure with skip connections.
+        
+        # Final output from decoder would be `spherical_displacement`
+        # spherical_displacement = self.s2c_conv(final_decoder_features, edge_index_l0)
+        
+        # This would then be passed to a SphericalToCartesianTransform module
+        raise NotImplementedError("Forward pass requires pre-computed grid hierarchies and cannot be demonstrated with dummy data.")
 
 
-# -----------------
-# Quick smoke test
-# -----------------
-if __name__ == "__main__":
-    torch.manual_seed(0)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SECTION 4: SPHERICAL-TO-CARTESIAN TRANSFORMATION
+# Corresponds to Section 3.3.2.
+# This module converts the network's spherical displacement output back to a
+# dense 3D Cartesian deformation field.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-    # Fake brain point clouds (replace with actual cortical surface samples)
-    N = 2048
-    pf_pts = F.normalize(torch.randn(N, 3, device=device), dim=-1) * 100.0
-    pm_pts = F.normalize(torch.randn(N, 3, device=device), dim=-1) * 100.0
-    pf_int = torch.randn(N, 1, device=device)
-    pm_int = torch.randn(N, 1, device=device)
+class SphericalToCartesianTransform(nn.Module):
+    """
+    Converts a spherical displacement field to a Cartesian deformation field.
+    
+    This is a non-parametric module that performs the geometric transformation
+    detailed in the paper. It is computationally intensive.
+    
+    (CORRECTED to handle large volumes by chunking the nearest-neighbor search)
+    """
+    def __init__(self, grid_vertices):
+        super().__init__()
+        self.grid_vertices = nn.Parameter(grid_vertices, requires_grad=False)
+        # Pre-compute spherical coordinates of grid vertices
+        x, y, z = grid_vertices.T
+        r_ = torch.sqrt(x**2 + y**2 + z**2)
+        theta_ = torch.acos(z / r_.clamp(min=1e-6))  # Polar angle
+        phi_ = torch.atan2(y, x)     # Azimuthal angle
+        self.grid_theta_phi = nn.Parameter(torch.stack([theta_, phi_], dim=1), requires_grad=False)
 
-    model = ScoreNet(levels=3, width=16, sh_lmax=2).to(device)
-    trainer = ScoreNetTrainer(model, lr=1e-3, lam_smooth=0.1, lam_jac=0.1)
+    def forward(self, spherical_displacement, target_shape, chunk_size=8192):
+        D, H, W = target_shape
+        device = spherical_displacement.device
+        
+        # Create a grid of voxel coordinates
+        coords = torch.stack(torch.meshgrid(
+            torch.arange(D, device=device),
+            torch.arange(H, device=device),
+            torch.arange(W, device=device),
+            indexing='ij'
+        ), dim=-1).float()
+        
+        center = torch.tensor([(D-1)/2, (H-1)/2, (W-1)/2], device=device)
+        coords_centered = coords.view(-1, 3) - center
+        
+        # 1. Convert voxel Cartesian coordinates to spherical
+        x, y, z = coords_centered.T
+        rho = torch.norm(coords_centered, dim=1)
+        theta = torch.acos(z / rho.clamp(min=1e-6))
+        phi = torch.atan2(y, x)
+        
+        # 2. Interpolate displacement vectors (Nearest Neighbor) IN CHUNKS
+        num_voxels = coords_centered.shape[0]
+        all_nearest_indices = torch.empty(num_voxels, dtype=torch.long, device=device)
 
-    stats = trainer.step(pf_pts, pf_int, pm_pts, pm_int)
-    print({k: round(v, 4) for k, v in stats.items()})
+        for i in range(0, num_voxels, chunk_size):
+            end = i + chunk_size
+            theta_chunk = theta[i:end]
+            phi_chunk = phi[i:end]
+            
+            # This calculation is now done on a small chunk, avoiding OOM
+            dist_matrix_chunk = (theta_chunk.unsqueeze(1) - self.grid_theta_phi[:, 0])**2 + \
+                                (phi_chunk.unsqueeze(1) - self.grid_theta_phi[:, 1])**2
+            
+            all_nearest_indices[i:end] = torch.argmin(dist_matrix_chunk, dim=1)
+
+        interp_disp = spherical_displacement[all_nearest_indices]
+        d_rho, d_theta, d_phi = interp_disp.T
+
+        # 3. Convert spherical displacement to Cartesian displacement
+        sin_theta, cos_theta = torch.sin(theta), torch.cos(theta)
+        sin_phi, cos_phi = torch.sin(phi), torch.cos(phi)
+        
+        e_rho = torch.stack([sin_theta * cos_phi, sin_theta * sin_phi, cos_theta], dim=1)
+        e_theta = torch.stack([cos_theta * cos_phi, cos_theta * sin_phi, -sin_theta], dim=1)
+        e_phi = torch.stack([-sin_phi, cos_phi, torch.zeros_like(phi)], dim=1)
+        
+        dx_dy_dz = d_rho.unsqueeze(1) * e_rho + \
+                   (rho * d_theta).unsqueeze(1) * e_theta + \
+                   (rho * sin_theta * d_phi).unsqueeze(1) * e_phi
+                   
+        return dx_dy_dz.view(D, H, W, 3).permute(3, 0, 1, 2)
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SECTION 5: LOSS FUNCTION AND SPATIAL TRANSFORMER
+# Corresponds to Section 4 and other implementation details.
+# Defines the multi-component loss and the final warping mechanism.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+class NCCLoss(nn.Module):
+    """ Local Normalized Cross-Correlation Loss. """
+    def __init__(self, win=9):
+        super().__init__()
+        self.win = win
+        self.win_size = win**3
+        self.padd = win // 2
+
+    def forward(self, y_true, y_pred):
+        # Compute moments
+        I = y_true
+        J = y_pred
+        I2 = I * I
+        J2 = J * J
+        IJ = I * J
+
+        # Use 3D convolution for local summation
+        conv_op = nn.Conv3d(1, 1, kernel_size=self.win, padding=self.padd, bias=False)
+        conv_op.weight.data = torch.ones(1, 1, self.win, self.win, self.win).to(I.device)
+        
+        I_sum = conv_op(I)
+        J_sum = conv_op(J)
+        I2_sum = conv_op(I2)
+        J2_sum = conv_op(J2)
+        IJ_sum = conv_op(IJ)
+
+        I_mu = I_sum / self.win_size
+        J_mu = J_sum / self.win_size
+
+        cross = IJ_sum - I_mu * J_sum - J_mu * I_sum + I_mu * J_mu * self.win_size
+        I_var = I2_sum - 2 * I_mu * I_sum + I_mu * I_mu * self.win_size
+        J_var = J2_sum - 2 * J_mu * J_sum + J_mu * J_mu * self.win_size
+
+        ncc = (cross * cross) / (I_var * J_var + 1e-5)
+        return -torch.mean(ncc)
+
+class SmoothnessLoss(nn.Module):
+    """ Diffusion regularizer to enforce smoothness. """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, y_pred):
+        dy = torch.abs(y_pred[:, :, 1:, :, :] - y_pred[:, :, :-1, :, :])
+        dx = torch.abs(y_pred[:, :, :, 1:, :] - y_pred[:, :, :, :-1, :])
+        dz = torch.abs(y_pred[:, :, :, :, 1:] - y_pred[:, :, :, :, :-1])
+        return torch.mean(dx**2) + torch.mean(dy**2) + torch.mean(dz**2)
+
+class JacobianLoss(nn.Module):
+    """ Penalizes non-positive Jacobian determinants. """
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, y_pred):
+        J = self.get_jacobian_matrix(y_pred)
+        det = J[:, 0, 0] * (J[:, 1, 1] * J[:, 2, 2] - J[:, 1, 2] * J[:, 2, 1]) - \
+              J[:, 0, 1] * (J[:, 1, 0] * J[:, 2, 2] - J[:, 1, 2] * J[:, 2, 0]) + \
+              J[:, 0, 2] * (J[:, 1, 0] * J[:, 2, 1] - J[:, 1, 1] * J[:, 2, 0])
+        return torch.mean(F.relu(-det))
+
+    def get_jacobian_matrix(self, y_pred):
+        # Approximate gradients using central differences
+        p = 1
+        D_y = F.pad(y_pred, [p, p, p, p, p, p], mode='replicate')
+        # ... (implementation of gradient computation)
+        # This is non-trivial, returning a placeholder
+        print("WARN: Jacobian determinant calculation is non-trivial; using a placeholder value.")
+        return torch.eye(3, 3, device=y_pred.device).reshape(1, 3, 3).repeat(y_pred.shape[0], 1, 1)
+
+class SpatialTransformer(nn.Module):
+    """ Differentiable spatial transformer layer to warp images. """
+    def __init__(self, size):
+        super().__init__()
+        self.size = size
+        vectors = [torch.arange(0, s) for s in size]
+        grids = torch.meshgrid(vectors, indexing='ij')
+        grid = torch.stack(grids)
+        grid = grid.float()
+        self.register_buffer('grid', grid)
+
+    def forward(self, src, flow):
+        new_locs = self.grid + flow
+        shape = flow.shape[2:]
+
+        for i in range(len(shape)):
+            new_locs[:, i, ...] = 2 * (new_locs[:, i, ...] / (shape[i] - 1) - 0.5)
+
+        new_locs = new_locs.permute(0, 2, 3, 4, 1)
+        new_locs = new_locs[..., [2, 1, 0]]
+
+        return F.grid_sample(src, new_locs, align_corners=True, padding_mode="border")
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# SECTION 6: DEMONSTRATION OF USAGE
+# This section shows how the components would be initialized and used.
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+if __name__ == '__main__':
+    # --- 1. Setup ---
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # print(f"Using device: {device}")
+    device = 'cuda:3'
+    
+    # --- 2. Create the Spherical Grid ---
+    print("\n[1/5] Generating Icosahedral Grid...")
+    subdivision_level = 5 # Higher level -> more vertices -> higher resolution
+    ico_grid = IcosahedralGrid(subdivision_level=subdivision_level)
+    grid_vertices = ico_grid.vertices.to(device)
+    edge_index = ico_grid.edge_index.to(device)
+    print(f"Grid created with {grid_vertices.shape[0]} vertices and {edge_index.shape[1]} edges.")
+    
+    # --- 3. Prepare Dummy Data ---
+    # In a real scenario, you would load MRI scans (e.g., from .nii files)
+    print("\n[2/5] Creating dummy 3D MRI data...")
+    volume_shape = (64, 64, 64)
+    # Moving image: a sphere
+    moving_vol = torch.zeros(volume_shape, device=device)
+    c, r = (32, 32, 32), 20
+    x, y, z = torch.meshgrid(torch.arange(64), torch.arange(64), torch.arange(64), indexing='ij')
+    moving_vol[(x-c[0])**2 + (y-c[1])**2 + (z-c[2])**2 < r**2] = 1.0
+    
+    # Fixed image: a slightly smaller, offset sphere
+    fixed_vol = torch.zeros(volume_shape, device=device)
+    c, r = (30, 34, 34), 18
+    fixed_vol[(x-c[0])**2 + (y-c[1])**2 + (z-c[2])**2 < r**2] = 1.0
+    
+    # Brain masks (for simplicity, same as the volumes)
+    moving_mask = (moving_vol > 0).float()
+    fixed_mask = (fixed_vol > 0).float()
+    
+    # --- 4. Parameterize Data to Spherical Domain ---
+    print("\n[3/5] Parameterizing volumes to spherical graph signals...")
+    parameterizer = VolumetricSphericalParameterization(grid_vertices, radial_samples=3).to(device)
+    
+    with torch.no_grad():
+        moving_features = parameterizer(moving_vol, moving_mask)
+        fixed_features = parameterizer(fixed_vol, fixed_mask)
+    
+    moving_graph = Data(x=moving_features, edge_index=edge_index)
+    fixed_graph = Data(x=fixed_features, edge_index=edge_index)
+    print(f"Created two graphs with feature shape: {moving_graph.x.shape}")
+
+    # --- 5. Model and Transformation (Conceptual) ---
+    # The full SphereMorphNet U-Net cannot be run without hierarchical grids.
+    # We will demonstrate the final S2C transform step instead.
+    print("\n[4/5] Demonstrating Spherical-to-Cartesian Transform...")
+    
+    # Let's assume the network produced a dummy spherical displacement field.
+    # This is the TENSOR that the SphereMorph-Net decoder would output.
+    # It has 3 channels (d_rho, d_theta, d_phi) for each grid vertex.
+    dummy_spherical_displacement = torch.randn(grid_vertices.shape[0], 3, device=device) * 0.1
+    
+    s2c_transformer = SphericalToCartesianTransform(grid_vertices).to(device)
+    
+    with torch.no_grad():
+        # The output is a dense 3D vector field
+        deformation_field = s2c_transformer(dummy_spherical_displacement, volume_shape)
+    
+    print(f"Generated a Cartesian deformation field of shape: {deformation_field.shape}")
+    
+    # --- 6. Applying Deformation and Calculating Loss ---
+    print("\n[5/5] Warping image and calculating loss...")
+    # Add a batch dimension
+    moving_vol_b = moving_vol.unsqueeze(0).unsqueeze(0) # [1, 1, D, H, W]
+    fixed_vol_b = fixed_vol.unsqueeze(0).unsqueeze(0)
+    deformation_field_b = deformation_field.unsqueeze(0) # [1, 3, D, H, W]
+
+    # Warp the moving image
+    stn = SpatialTransformer(volume_shape).to(device)
+    warped_moving_vol_b = stn(moving_vol_b, deformation_field_b)
+
+    # Calculate Loss Components
+    ncc_loss = NCCLoss(win=9).to(device)
+    smooth_loss = SmoothnessLoss().to(device)
+    # jacobian_loss = JacobianLoss().to(device) # Placeholder
+
+    l_sim = ncc_loss(fixed_vol_b, warped_moving_vol_b)
+    l_smooth = smooth_loss(deformation_field_b)
+    # l_diff = jacobian_loss(deformation_field_b)
+
+    # Combine with hyperparameters lambda1 and lambda2
+    lambda1 = 1.0
+    lambda2 = 0.1
+    total_loss = l_sim + lambda1 * l_smooth # + lambda2 * l_diff
+    
+    print(f"Similarity Loss (NCC): {l_sim.item():.4f}")
+    print(f"Smoothness Loss: {l_smooth.item():.4f}")
+    print(f"Total Weighted Loss: {total_loss.item():.4f}")
+    print("\nDemonstration complete. This script provides a full blueprint for implementation.")
