@@ -29,6 +29,9 @@ class OASISDataset(Dataset):
                 size=self.target_size,
                 mode='nearest'
             ).squeeze(0).squeeze(0)
+            
+            # Ensure the volume is properly normalized
+            self.fixed_volume = torch.clamp(self.fixed_volume, 0.0, 1.0)
 
         except FileNotFoundError:
             print(f"ERROR: Template file not found at {self.template_path}")
@@ -52,5 +55,8 @@ class OASISDataset(Dataset):
             size=self.target_size,
             mode='nearest'
         ).squeeze(0).squeeze(0)
+        
+        # Ensure the volume is properly normalized
+        moving_volume = torch.clamp(moving_volume, 0.0, 1.0)
         
         return moving_volume, self.fixed_volume

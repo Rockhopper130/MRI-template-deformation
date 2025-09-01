@@ -25,11 +25,12 @@ def spherical_unit_vectors(theta, phi):
 
 
 class S2CHead(nn.Module):
-    def __init__(self, in_channels, k=4, chunk_voxels=200000):
+    def __init__(self, in_channels, k=4, chunk_voxels=200000, scale_factor=0.1):
         super().__init__()
         self.proj = nn.Linear(in_channels, 3)
         self.k = k
         self.chunk_voxels = chunk_voxels
+        self.scale_factor = scale_factor  # Scale factor to keep displacement field in reasonable range
 
     def forward(self, features, vertex_pos_cartesian, out_size, voxel_origin=None, voxel_spacing=None):
         device = features.device
@@ -100,4 +101,6 @@ class S2CHead(nn.Module):
             out[start:end] = delta
             start = end
         out = out.view(D, H, W, 3)
+        # Apply scaling factor to keep displacement field in reasonable range
+        out = out * self.scale_factor
         return out

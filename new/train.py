@@ -187,6 +187,14 @@ def main():
     model = SphereMorphNet(grid=grid).to(DEVICE)
     stn = SpatialTransformer(size=(128, 128, 128), device=DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+    
+    # Add learning rate scheduler for better convergence
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, mode='min', factor=0.5, patience=10, verbose=True
+    )
+    
+    # Gradient clipping threshold
+    max_grad_norm = 1.0
 
     # --- Training Loop ---
     best_val_loss = float('inf')
@@ -206,6 +214,15 @@ def main():
             
             # Forward pass
             disp_field = model(moving_vol, fixed_vol) # -> [D,H,W,3]
+            
+            # Normalize displacement field to prevent scaling issues
+            # The integration step expects displacement fields in reasonable voxel units
+            disp_magnitude = torch.norm(disp_field, dim=-1)
+            max_disp = disp_magnitude.max()
+            if max_disp > 10.0:  # If displacement is too large, scale it down
+                scale_factor = 10.0 / max_disp
+                disp_field = disp_field * scale_factor
+                print(f"Warning: Large displacement detected ({max_disp:.2f}), scaling by {scale_factor:.3f}")
             
             # Reshape for STN and Loss
             disp_batch = disp_field.permute(3, 0, 1, 2).unsqueeze(0) # -> [1,3,D,H,W]
@@ -231,11 +248,15 @@ def main():
             # print(" warped_scan min/max:", warped_scan.min().item(), warped_scan.max().item())
             # print(" fixed_batch vs warped_scan:", fixed_batch.shape, warped_scan.squeeze(0).squeeze(0).shape)
             
-            # Loss calculation
-            loss = composite_loss(fixed_batch, warped_scan.squeeze(0).squeeze(0), disp_batch)
+            # Loss calculation - now the loss functions can handle the correct shapes
+            loss = composite_loss(warped_scan.squeeze(0).squeeze(0), fixed_batch, disp_batch)
             # print("[DEBUG] loss:", loss.item())
             
             loss.backward()
+            
+            # Gradient clipping for stability
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
+            
             optimizer.step()
             
             train_loss += loss.item()
@@ -255,12 +276,20 @@ def main():
                 fixed_vol = fixed_vol.squeeze(0)
                 
                 disp_field = model(moving_vol, fixed_vol)
+                
+                # Apply the same displacement field normalization as in training
+                disp_magnitude = torch.norm(disp_field, dim=-1)
+                max_disp = disp_magnitude.max()
+                if max_disp > 10.0:
+                    scale_factor = 10.0 / max_disp
+                    disp_field = disp_field * scale_factor
+                
                 disp_batch = disp_field.permute(3, 0, 1, 2).unsqueeze(0)
                 moving_batch = moving_vol.float().unsqueeze(0).unsqueeze(0).to(DEVICE)
                 fixed_batch = fixed_vol.float().to(DEVICE)
                 
                 warped_scan = stn(moving=moving_batch, flow=disp_batch)
-                loss = composite_loss(fixed_batch, warped_scan.squeeze(0).squeeze(0), disp_batch)
+                loss = composite_loss(warped_scan.squeeze(0).squeeze(0), fixed_batch, disp_batch)
                 
                 val_loss += loss.item()
                 val_pbar.set_postfix({'loss': loss.item()})
@@ -269,6 +298,9 @@ def main():
         history['val_loss'].append(avg_val_loss)
         
         print(f"Epoch {epoch+1}/{EPOCHS} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+
+        # Update learning rate based on validation loss
+        scheduler.step(avg_val_loss)
 
         # -- Save Best Model --
         if avg_val_loss < best_val_loss:
