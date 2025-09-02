@@ -47,6 +47,8 @@ wheels/
 pip-wheel-metadata/
 *.egg
 *.whl
+*.pth
+new/best_model.pth
 
 
 # --- Secrets and Credentials ---

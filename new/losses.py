@@ -26,6 +26,8 @@ def smoothing_loss(deformation_field):
     return torch.mean(dx ** 2) + torch.mean(dy ** 2) + torch.mean(dz ** 2)
 
 def bending_energy_loss(flow):
+    flow = flow.unsqueeze(0)
+
     # Second-order derivatives for smoothness
     d2x = flow[:,:,2:] - 2*flow[:,:,1:-1] + flow[:,:,:-2]
     d2y = flow[:,:,:,2:] - 2*flow[:,:,:,1:-1] + flow[:,:,:,:-2]
@@ -35,6 +37,7 @@ def bending_energy_loss(flow):
 
 def jacobian_det_loss(flow):
     """Prevent folding through Jacobian analysis"""
+    flow = flow.unsqueeze(0)
     J = torch.stack(torch.gradient(flow, dim=(2,3,4)), dim=2) 
     det = torch.det(J.permute(0,3,4,5,1,2))  
     return torch.mean(F.relu(-det))  
