@@ -1,0 +1,275 @@
+2025-09-05 04:15:01,106 - INFO - Starting training session...
+2025-09-05 04:15:01,107 - INFO - Using device: cuda:4
+2025-09-05 04:15:01,107 - INFO - Learning rate: 0.001
+2025-09-05 04:15:01,107 - INFO - Epochs: 80
+2025-09-05 04:15:01,107 - INFO - Batch size: 1
+2025-09-05 04:15:01,108 - INFO - Data directory: /shared/scratch/0/home/v_nishchay_nilabh/oasis_data/scans/
+2025-09-05 04:15:01,108 - INFO - Template ID: OASIS_OAS1_0406_MR1
+2025-09-05 04:15:01,111 - INFO - Training scans: 330 | Validation scans: 83
+2025-09-05 04:15:03,410 - INFO - Dataset loaded successfully
+2025-09-05 04:15:03,410 - INFO - Training dataset size: 330
+2025-09-05 04:15:03,410 - INFO - Validation dataset size: 83
+2025-09-05 04:15:03,864 - INFO - Grid vertices shape: torch.Size([2562, 3])
+2025-09-05 04:15:03,864 - INFO - Grid edge index shape: torch.Size([2, 15360])
+2025-09-05 04:15:04,168 - INFO - Model weights initialized with He initialization.
+2025-09-05 04:15:04,170 - INFO - Model initialized successfully
+2025-09-05 04:15:04,170 - INFO - Total trainable parameters: 3,601,971
+2025-09-05 04:15:04,171 - INFO - Starting training loop...
+2025-09-05 04:15:04,171 - INFO - Training for 80 epochs with 330 batches per epoch
+2025-09-05 04:24:50,727 - INFO - Epoch 1/80 | Train Loss: 0.4327 | Val Loss: 0.4156
+2025-09-05 04:24:50,728 - INFO - Current learning rate: 1.00e-03
+2025-09-05 04:24:50,729 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 04:24:52,008 - INFO - New best model saved with val loss: 0.4156
+2025-09-05 04:34:34,057 - INFO - Epoch 2/80 | Train Loss: 0.3629 | Val Loss: 0.3634
+2025-09-05 04:34:34,058 - INFO - Current learning rate: 9.98e-04
+2025-09-05 04:34:34,058 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 04:34:35,346 - INFO - New best model saved with val loss: 0.3634
+2025-09-05 04:44:17,474 - INFO - Epoch 3/80 | Train Loss: 0.3473 | Val Loss: 0.3638
+2025-09-05 04:44:17,475 - INFO - Current learning rate: 9.97e-04
+2025-09-05 04:44:17,475 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 04:53:56,918 - INFO - Epoch 4/80 | Train Loss: 0.3390 | Val Loss: 0.3606
+2025-09-05 04:53:56,919 - INFO - Current learning rate: 9.94e-04
+2025-09-05 04:53:56,919 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 04:53:58,214 - INFO - New best model saved with val loss: 0.3606
+2025-09-05 05:03:39,628 - INFO - Epoch 5/80 | Train Loss: 0.3328 | Val Loss: 0.3334
+2025-09-05 05:03:39,629 - INFO - Current learning rate: 9.90e-04
+2025-09-05 05:03:39,629 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 05:03:40,923 - INFO - New best model saved with val loss: 0.3334
+2025-09-05 05:13:22,265 - INFO - Epoch 6/80 | Train Loss: 0.3299 | Val Loss: 0.3554
+2025-09-05 05:13:22,266 - INFO - Current learning rate: 9.86e-04
+2025-09-05 05:13:22,267 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 05:23:01,758 - INFO - Epoch 7/80 | Train Loss: 0.3246 | Val Loss: 0.3273
+2025-09-05 05:23:01,758 - INFO - Current learning rate: 9.81e-04
+2025-09-05 05:23:01,759 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 05:23:03,054 - INFO - New best model saved with val loss: 0.3273
+2025-09-05 05:32:42,707 - INFO - Epoch 8/80 | Train Loss: 0.3217 | Val Loss: 0.3235
+2025-09-05 05:32:42,708 - INFO - Current learning rate: 9.76e-04
+2025-09-05 05:32:42,709 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 05:32:43,991 - INFO - New best model saved with val loss: 0.3235
+2025-09-05 05:42:24,084 - INFO - Epoch 9/80 | Train Loss: 0.3196 | Val Loss: 0.3374
+2025-09-05 05:42:24,084 - INFO - Current learning rate: 9.69e-04
+2025-09-05 05:42:24,085 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 05:52:08,915 - INFO - Epoch 10/80 | Train Loss: 0.3175 | Val Loss: 0.3281
+2025-09-05 05:52:08,916 - INFO - Current learning rate: 9.62e-04
+2025-09-05 05:52:08,917 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 06:01:55,154 - INFO - Epoch 11/80 | Train Loss: 0.3169 | Val Loss: 0.3271
+2025-09-05 06:01:55,155 - INFO - Current learning rate: 9.54e-04
+2025-09-05 06:01:55,156 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 06:11:34,222 - INFO - Epoch 12/80 | Train Loss: 0.3167 | Val Loss: 0.3246
+2025-09-05 06:11:34,223 - INFO - Current learning rate: 9.46e-04
+2025-09-05 06:11:34,223 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 06:21:13,266 - INFO - Epoch 13/80 | Train Loss: 0.3129 | Val Loss: 0.3189
+2025-09-05 06:21:13,267 - INFO - Current learning rate: 9.36e-04
+2025-09-05 06:21:13,267 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 06:21:14,560 - INFO - New best model saved with val loss: 0.3189
+2025-09-05 06:30:52,540 - INFO - Epoch 14/80 | Train Loss: 0.3118 | Val Loss: 0.3150
+2025-09-05 06:30:52,541 - INFO - Current learning rate: 9.26e-04
+2025-09-05 06:30:52,541 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 06:30:53,811 - INFO - New best model saved with val loss: 0.3150
+2025-09-05 06:40:31,654 - INFO - Epoch 15/80 | Train Loss: 0.3105 | Val Loss: 0.3138
+2025-09-05 06:40:31,655 - INFO - Current learning rate: 9.16e-04
+2025-09-05 06:40:31,656 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 06:40:32,933 - INFO - New best model saved with val loss: 0.3138
+2025-09-05 06:50:13,038 - INFO - Epoch 16/80 | Train Loss: 0.3104 | Val Loss: 0.3194
+2025-09-05 06:50:13,039 - INFO - Current learning rate: 9.05e-04
+2025-09-05 06:50:13,039 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 06:59:51,964 - INFO - Epoch 17/80 | Train Loss: 0.3094 | Val Loss: 0.3286
+2025-09-05 06:59:51,965 - INFO - Current learning rate: 8.93e-04
+2025-09-05 06:59:51,965 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 07:09:32,661 - INFO - Epoch 18/80 | Train Loss: 0.3089 | Val Loss: 0.3178
+2025-09-05 07:09:32,662 - INFO - Current learning rate: 8.80e-04
+2025-09-05 07:09:32,662 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 07:19:12,242 - INFO - Epoch 19/80 | Train Loss: 0.3071 | Val Loss: 0.3184
+2025-09-05 07:19:12,243 - INFO - Current learning rate: 8.67e-04
+2025-09-05 07:19:12,243 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 07:28:53,049 - INFO - Epoch 20/80 | Train Loss: 0.3057 | Val Loss: 0.3142
+2025-09-05 07:28:53,050 - INFO - Current learning rate: 8.54e-04
+2025-09-05 07:28:53,050 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 07:38:33,309 - INFO - Epoch 21/80 | Train Loss: 0.3055 | Val Loss: 0.3131
+2025-09-05 07:38:33,310 - INFO - Current learning rate: 8.40e-04
+2025-09-05 07:38:33,310 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 07:38:34,584 - INFO - New best model saved with val loss: 0.3131
+2025-09-05 07:48:18,522 - INFO - Epoch 22/80 | Train Loss: 0.3051 | Val Loss: 0.3218
+2025-09-05 07:48:18,522 - INFO - Current learning rate: 8.25e-04
+2025-09-05 07:48:18,523 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 07:57:58,475 - INFO - Epoch 23/80 | Train Loss: 0.3053 | Val Loss: 0.3170
+2025-09-05 07:57:58,476 - INFO - Current learning rate: 8.10e-04
+2025-09-05 07:57:58,476 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 08:07:38,608 - INFO - Epoch 24/80 | Train Loss: 0.3036 | Val Loss: 0.3144
+2025-09-05 08:07:38,609 - INFO - Current learning rate: 7.94e-04
+2025-09-05 08:07:38,609 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 08:17:18,903 - INFO - Epoch 25/80 | Train Loss: 0.3019 | Val Loss: 0.3122
+2025-09-05 08:17:18,904 - INFO - Current learning rate: 7.78e-04
+2025-09-05 08:17:18,905 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 08:17:20,175 - INFO - New best model saved with val loss: 0.3122
+2025-09-05 08:27:07,042 - INFO - Epoch 26/80 | Train Loss: 0.3011 | Val Loss: 0.3143
+2025-09-05 08:27:07,042 - INFO - Current learning rate: 7.61e-04
+2025-09-05 08:27:07,043 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 08:36:50,931 - INFO - Epoch 27/80 | Train Loss: 0.3007 | Val Loss: 0.3151
+2025-09-05 08:36:50,932 - INFO - Current learning rate: 7.45e-04
+2025-09-05 08:36:50,932 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 08:46:36,252 - INFO - Epoch 28/80 | Train Loss: 0.3003 | Val Loss: 0.3118
+2025-09-05 08:46:36,253 - INFO - Current learning rate: 7.27e-04
+2025-09-05 08:46:36,253 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 08:46:37,527 - INFO - New best model saved with val loss: 0.3118
+2025-09-05 08:56:24,945 - INFO - Epoch 29/80 | Train Loss: 0.3001 | Val Loss: 0.3168
+2025-09-05 08:56:24,946 - INFO - Current learning rate: 7.10e-04
+2025-09-05 08:56:24,946 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 09:06:10,220 - INFO - Epoch 30/80 | Train Loss: 0.3001 | Val Loss: 0.3161
+2025-09-05 09:06:10,221 - INFO - Current learning rate: 6.92e-04
+2025-09-05 09:06:10,222 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 09:15:55,573 - INFO - Epoch 31/80 | Train Loss: 0.2990 | Val Loss: 0.3127
+2025-09-05 09:15:55,574 - INFO - Current learning rate: 6.73e-04
+2025-09-05 09:15:55,574 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 09:25:41,890 - INFO - Epoch 32/80 | Train Loss: 0.2977 | Val Loss: 0.3142
+2025-09-05 09:25:41,891 - INFO - Current learning rate: 6.55e-04
+2025-09-05 09:25:41,892 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 09:35:35,839 - INFO - Epoch 33/80 | Train Loss: 0.2975 | Val Loss: 0.3145
+2025-09-05 09:35:35,840 - INFO - Current learning rate: 6.36e-04
+2025-09-05 09:35:35,840 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 09:45:22,170 - INFO - Epoch 34/80 | Train Loss: 0.2970 | Val Loss: 0.3168
+2025-09-05 09:45:22,170 - INFO - Current learning rate: 6.17e-04
+2025-09-05 09:45:22,171 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 09:55:11,647 - INFO - Epoch 35/80 | Train Loss: 0.2971 | Val Loss: 0.3151
+2025-09-05 09:55:11,648 - INFO - Current learning rate: 5.98e-04
+2025-09-05 09:55:11,648 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 10:05:02,993 - INFO - Epoch 36/80 | Train Loss: 0.2969 | Val Loss: 0.3151
+2025-09-05 10:05:02,993 - INFO - Current learning rate: 5.79e-04
+2025-09-05 10:05:02,994 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 10:14:53,425 - INFO - Epoch 37/80 | Train Loss: 0.2963 | Val Loss: 0.3151
+2025-09-05 10:14:53,426 - INFO - Current learning rate: 5.59e-04
+2025-09-05 10:14:53,426 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 10:24:42,369 - INFO - Epoch 38/80 | Train Loss: 0.2957 | Val Loss: 0.3136
+2025-09-05 10:24:42,369 - INFO - Current learning rate: 5.40e-04
+2025-09-05 10:24:42,370 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 10:34:52,637 - INFO - Epoch 39/80 | Train Loss: 0.2955 | Val Loss: 0.3140
+2025-09-05 10:34:52,638 - INFO - Current learning rate: 5.20e-04
+2025-09-05 10:34:52,639 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 10:44:47,934 - INFO - Epoch 40/80 | Train Loss: 0.2955 | Val Loss: 0.3134
+2025-09-05 10:44:47,934 - INFO - Current learning rate: 5.00e-04
+2025-09-05 10:44:47,935 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 10:54:42,483 - INFO - Epoch 41/80 | Train Loss: 0.2951 | Val Loss: 0.3137
+2025-09-05 10:54:42,484 - INFO - Current learning rate: 4.81e-04
+2025-09-05 10:54:42,484 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 11:04:31,459 - INFO - Epoch 42/80 | Train Loss: 0.2949 | Val Loss: 0.3153
+2025-09-05 11:04:31,460 - INFO - Current learning rate: 4.61e-04
+2025-09-05 11:04:31,461 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 11:14:20,761 - INFO - Epoch 43/80 | Train Loss: 0.2949 | Val Loss: 0.3138
+2025-09-05 11:14:20,762 - INFO - Current learning rate: 4.42e-04
+2025-09-05 11:14:20,762 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 11:24:27,819 - INFO - Epoch 44/80 | Train Loss: 0.2944 | Val Loss: 0.3138
+2025-09-05 11:24:27,820 - INFO - Current learning rate: 4.22e-04
+2025-09-05 11:24:27,821 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 11:34:16,826 - INFO - Epoch 45/80 | Train Loss: 0.2943 | Val Loss: 0.3131
+2025-09-05 11:34:16,827 - INFO - Current learning rate: 4.03e-04
+2025-09-05 11:34:16,827 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 11:44:10,685 - INFO - Epoch 46/80 | Train Loss: 0.2941 | Val Loss: 0.3135
+2025-09-05 11:44:10,686 - INFO - Current learning rate: 3.84e-04
+2025-09-05 11:44:10,687 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 11:54:00,468 - INFO - Epoch 47/80 | Train Loss: 0.2942 | Val Loss: 0.3131
+2025-09-05 11:54:00,469 - INFO - Current learning rate: 3.65e-04
+2025-09-05 11:54:00,469 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 12:03:51,142 - INFO - Epoch 48/80 | Train Loss: 0.2942 | Val Loss: 0.3137
+2025-09-05 12:03:51,142 - INFO - Current learning rate: 3.46e-04
+2025-09-05 12:03:51,143 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 12:13:40,179 - INFO - Epoch 49/80 | Train Loss: 0.2940 | Val Loss: 0.3135
+2025-09-05 12:13:40,179 - INFO - Current learning rate: 3.28e-04
+2025-09-05 12:13:40,180 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 12:23:24,189 - INFO - Epoch 50/80 | Train Loss: 0.2937 | Val Loss: 0.3137
+2025-09-05 12:23:24,189 - INFO - Current learning rate: 3.09e-04
+2025-09-05 12:23:24,190 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 12:33:05,634 - INFO - Epoch 51/80 | Train Loss: 0.2938 | Val Loss: 0.3150
+2025-09-05 12:33:05,635 - INFO - Current learning rate: 2.91e-04
+2025-09-05 12:33:05,635 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 12:42:45,416 - INFO - Epoch 52/80 | Train Loss: 0.2937 | Val Loss: 0.3138
+2025-09-05 12:42:45,416 - INFO - Current learning rate: 2.74e-04
+2025-09-05 12:42:45,417 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 12:52:23,714 - INFO - Epoch 53/80 | Train Loss: 0.2936 | Val Loss: 0.3138
+2025-09-05 12:52:23,714 - INFO - Current learning rate: 2.56e-04
+2025-09-05 12:52:23,715 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 13:02:02,846 - INFO - Epoch 54/80 | Train Loss: 0.2937 | Val Loss: 0.3139
+2025-09-05 13:02:02,847 - INFO - Current learning rate: 2.40e-04
+2025-09-05 13:02:02,847 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 13:11:44,493 - INFO - Epoch 55/80 | Train Loss: 0.2938 | Val Loss: 0.3149
+2025-09-05 13:11:44,493 - INFO - Current learning rate: 2.23e-04
+2025-09-05 13:11:44,494 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 13:21:23,813 - INFO - Epoch 56/80 | Train Loss: 0.2936 | Val Loss: 0.3130
+2025-09-05 13:21:23,813 - INFO - Current learning rate: 2.07e-04
+2025-09-05 13:21:23,814 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 13:31:14,104 - INFO - Epoch 57/80 | Train Loss: 0.2936 | Val Loss: 0.3143
+2025-09-05 13:31:14,104 - INFO - Current learning rate: 1.91e-04
+2025-09-05 13:31:14,105 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 13:41:05,806 - INFO - Epoch 58/80 | Train Loss: 0.2935 | Val Loss: 0.3140
+2025-09-05 13:41:05,807 - INFO - Current learning rate: 1.76e-04
+2025-09-05 13:41:05,807 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 13:51:09,293 - INFO - Epoch 59/80 | Train Loss: 0.2935 | Val Loss: 0.3144
+2025-09-05 13:51:09,293 - INFO - Current learning rate: 1.61e-04
+2025-09-05 13:51:09,294 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 14:01:07,620 - INFO - Epoch 60/80 | Train Loss: 0.2936 | Val Loss: 0.3140
+2025-09-05 14:01:07,620 - INFO - Current learning rate: 1.47e-04
+2025-09-05 14:01:07,621 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 14:10:58,295 - INFO - Epoch 61/80 | Train Loss: 0.2935 | Val Loss: 0.3143
+2025-09-05 14:10:58,295 - INFO - Current learning rate: 1.34e-04
+2025-09-05 14:10:58,296 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 14:20:51,390 - INFO - Epoch 62/80 | Train Loss: 0.2934 | Val Loss: 0.3153
+2025-09-05 14:20:51,390 - INFO - Current learning rate: 1.21e-04
+2025-09-05 14:20:51,391 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 14:30:40,062 - INFO - Epoch 63/80 | Train Loss: 0.2934 | Val Loss: 0.3138
+2025-09-05 14:30:40,062 - INFO - Current learning rate: 1.08e-04
+2025-09-05 14:30:40,062 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 14:40:37,203 - INFO - Epoch 64/80 | Train Loss: 0.2934 | Val Loss: 0.3146
+2025-09-05 14:40:37,203 - INFO - Current learning rate: 9.64e-05
+2025-09-05 14:40:37,204 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 14:50:40,117 - INFO - Epoch 65/80 | Train Loss: 0.2933 | Val Loss: 0.3158
+2025-09-05 14:50:40,117 - INFO - Current learning rate: 8.52e-05
+2025-09-05 14:50:40,118 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 15:01:32,555 - INFO - Epoch 66/80 | Train Loss: 0.2934 | Val Loss: 0.3142
+2025-09-05 15:01:32,555 - INFO - Current learning rate: 7.46e-05
+2025-09-05 15:01:32,556 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 15:12:26,789 - INFO - Epoch 67/80 | Train Loss: 0.2934 | Val Loss: 0.3151
+2025-09-05 15:12:26,789 - INFO - Current learning rate: 6.47e-05
+2025-09-05 15:12:26,790 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 15:22:32,857 - INFO - Epoch 68/80 | Train Loss: 0.2935 | Val Loss: 0.3135
+2025-09-05 15:22:32,858 - INFO - Current learning rate: 5.54e-05
+2025-09-05 15:22:32,858 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 15:32:22,912 - INFO - Epoch 69/80 | Train Loss: 0.2934 | Val Loss: 0.3149
+2025-09-05 15:32:22,912 - INFO - Current learning rate: 4.69e-05
+2025-09-05 15:32:22,913 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 15:42:13,012 - INFO - Epoch 70/80 | Train Loss: 0.2934 | Val Loss: 0.3139
+2025-09-05 15:42:13,012 - INFO - Current learning rate: 3.90e-05
+2025-09-05 15:42:13,013 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 15:52:03,655 - INFO - Epoch 71/80 | Train Loss: 0.2933 | Val Loss: 0.3150
+2025-09-05 15:52:03,656 - INFO - Current learning rate: 3.19e-05
+2025-09-05 15:52:03,656 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 16:01:53,326 - INFO - Epoch 72/80 | Train Loss: 0.2934 | Val Loss: 0.3136
+2025-09-05 16:01:53,326 - INFO - Current learning rate: 2.54e-05
+2025-09-05 16:01:53,327 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 16:11:35,628 - INFO - Epoch 73/80 | Train Loss: 0.2933 | Val Loss: 0.3142
+2025-09-05 16:11:35,628 - INFO - Current learning rate: 1.98e-05
+2025-09-05 16:11:35,629 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 16:21:13,454 - INFO - Epoch 74/80 | Train Loss: 0.2934 | Val Loss: 0.3133
+2025-09-05 16:21:13,455 - INFO - Current learning rate: 1.48e-05
+2025-09-05 16:21:13,455 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 16:30:52,697 - INFO - Epoch 75/80 | Train Loss: 0.2933 | Val Loss: 0.3139
+2025-09-05 16:30:52,698 - INFO - Current learning rate: 1.06e-05
+2025-09-05 16:30:52,698 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 16:40:31,834 - INFO - Epoch 76/80 | Train Loss: 0.2934 | Val Loss: 0.3139
+2025-09-05 16:40:31,835 - INFO - Current learning rate: 7.15e-06
+2025-09-05 16:40:31,835 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 16:50:12,753 - INFO - Epoch 77/80 | Train Loss: 0.2934 | Val Loss: 0.3145
+2025-09-05 16:50:12,754 - INFO - Current learning rate: 4.46e-06
+2025-09-05 16:50:12,754 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 16:59:54,124 - INFO - Epoch 78/80 | Train Loss: 0.2935 | Val Loss: 0.3140
+2025-09-05 16:59:54,125 - INFO - Current learning rate: 2.54e-06
+2025-09-05 16:59:54,125 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 17:09:33,989 - INFO - Epoch 79/80 | Train Loss: 0.2934 | Val Loss: 0.3149
+2025-09-05 17:09:33,989 - INFO - Current learning rate: 1.39e-06
+2025-09-05 17:09:33,989 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 17:19:12,217 - INFO - Epoch 80/80 | Train Loss: 0.2933 | Val Loss: 0.3141
+2025-09-05 17:19:12,218 - INFO - Current learning rate: 1.00e-06
+2025-09-05 17:19:12,218 - INFO - GPU Memory - Allocated: 0.14 GB, Reserved: 5.92 GB
+2025-09-05 17:19:12,218 - INFO - -> Training complete.
+2025-09-05 17:19:12,218 - INFO - Best validation loss achieved: 0.3118
+2025-09-05 17:19:12,218 - INFO - Training completed successfully in 80 epochs
+2025-09-05 17:19:12,218 - INFO - Log file saved to: logs/training_log_20250905_041501.txt
+2025-09-05 17:19:12,218 - INFO - Total training time: 47048.05 seconds

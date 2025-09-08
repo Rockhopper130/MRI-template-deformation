@@ -40,33 +40,27 @@ class IcosahedralGrid:
         verts_list = [v.clone() for v in verts]
         faces_list = [tuple(face.tolist()) for face in faces]
 
-        pool_maps = []  # list of dicts: coarse_idx -> [fine_indices]
-        up_maps = []    # list of tensors: fine_idx -> coarse_idx
+        pool_maps = []
+        up_maps = []
 
         for _ in range(self.subdivisions):
+            prev_n = len(verts_list)
             midpoint_cache = {}
             new_faces = []
-            pool_map = {i: [i] for i in range(len(verts_list))}  # initialize: each coarse vertex keeps itself
+            pool_map = {i: [i] for i in range(prev_n)}
             up_map = {}
 
             def get_midpoint(i, j):
                 key = (i, j) if i < j else (j, i)
                 if key in midpoint_cache:
                     return midpoint_cache[key]
-                vi, vj = verts_list[i], verts_list[j]
-                m = (vi + vj) * 0.5
+                m = (verts_list[i] + verts_list[j]) * 0.5
                 m = m / m.norm()
                 idx = len(verts_list)
                 verts_list.append(m)
-
-                # assign midpoint to one of its parents (choose smaller index deterministically)
                 parent = min(i, j)
                 up_map[idx] = parent
-                if parent in pool_map:
-                    pool_map[parent].append(idx)
-                else:
-                    pool_map[parent] = [idx]
-
+                pool_map[parent].append(idx)
                 midpoint_cache[key] = idx
                 return idx
 
@@ -74,16 +68,14 @@ class IcosahedralGrid:
                 ab = get_midpoint(a, b)
                 bc = get_midpoint(b, c)
                 ca = get_midpoint(c, a)
-                new_faces.extend([
-                    (a, ab, ca),
-                    (b, bc, ab),
-                    (c, ca, bc),
-                    (ab, bc, ca),
-                ])
+                new_faces.extend([(a, ab, ca), (b, bc, ab), (c, ca, bc), (ab, bc, ca)])
+
             faces_list = new_faces
             pool_maps.append(pool_map)
-            # convert up_map dict into tensor
-            up_map_tensor = torch.full((len(verts_list),), -1, dtype=torch.long, device=self.device)
+
+            new_n = len(verts_list)
+            up_map_tensor = torch.empty((new_n,), dtype=torch.long, device=self.device)
+            up_map_tensor[:prev_n] = torch.arange(prev_n, device=self.device)
             for fine_idx, coarse_idx in up_map.items():
                 up_map_tensor[fine_idx] = coarse_idx
             up_maps.append(up_map_tensor)
@@ -101,3 +93,4 @@ class IcosahedralGrid:
         edge_index = torch.tensor([src + dst, dst + src], dtype=torch.long, device=self.device)
 
         return V.float(), edge_index, faces_list, pool_maps, up_maps
+    

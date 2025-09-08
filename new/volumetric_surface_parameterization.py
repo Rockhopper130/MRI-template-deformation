@@ -12,7 +12,7 @@ class VolumetricSphericalParameterization:
         self.steps = steps
         self.fractions = fractions
         self.mask_threshold = mask_threshold
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = device or torch.device("cuda:4" if torch.cuda.is_available() else "cpu")
 
     def __call__(self, volume, vertices, edge_index, brain_mask=None):
         return self.run(volume, vertices, edge_index, brain_mask)

@@ -1,0 +1,17 @@
+2025-09-05 04:11:02,198 - INFO - Starting training session...
+2025-09-05 04:11:02,199 - INFO - Using device: cuda:4
+2025-09-05 04:11:02,199 - INFO - Learning rate: 0.0001
+2025-09-05 04:11:02,199 - INFO - Epochs: 50
+2025-09-05 04:11:02,199 - INFO - Batch size: 1
+2025-09-05 04:11:02,200 - INFO - Data directory: /shared/scratch/0/home/v_nishchay_nilabh/oasis_data/scans/
+2025-09-05 04:11:02,200 - INFO - Template ID: OASIS_OAS1_0406_MR1
+2025-09-05 04:11:02,203 - INFO - Training scans: 330 | Validation scans: 83
+2025-09-05 04:11:04,000 - INFO - Dataset loaded successfully
+2025-09-05 04:11:04,001 - INFO - Training dataset size: 330
+2025-09-05 04:11:04,001 - INFO - Validation dataset size: 83
+2025-09-05 04:11:04,950 - INFO - Grid vertices shape: torch.Size([10242, 3])
+2025-09-05 04:11:04,951 - INFO - Grid edge index shape: torch.Size([2, 61440])
+2025-09-05 04:11:05,395 - INFO - Model initialized successfully
+2025-09-05 04:11:05,396 - INFO - Total trainable parameters: 3,932,723
+2025-09-05 04:11:05,397 - INFO - Starting training loop...
+2025-09-05 04:11:05,397 - INFO - Training for 50 epochs with 330 batches per epoch

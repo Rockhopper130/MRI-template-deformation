@@ -1,5 +1,7 @@
 import os
 import random
+import logging
+from datetime import datetime
 import numpy as np
 import torch
 import torch.nn as nn
@@ -26,7 +28,7 @@ from losses import composite_loss
 from dataloader import OASISDataset
 
 # --- Helper functions from the notebook ---
-def dict_to_pool_tensor(pool_dict, device="cuda"):
+def dict_to_pool_tensor(pool_dict, device="cuda:4"):
     """Converts a dictionary-based pooling map to a tensor."""
     Nc = max(pool_dict.keys()) + 1
     k = max(len(v) for v in pool_dict.values())
@@ -35,7 +37,7 @@ def dict_to_pool_tensor(pool_dict, device="cuda"):
         pool_tensor[c, :len(fine_list)] = torch.tensor(fine_list, dtype=torch.long, device=device)
     return pool_tensor
 
-def dict_to_up_tensor(pool_dict, device="cuda"):
+def dict_to_up_tensor(pool_dict, device="cuda:4"):
     """Converts a dictionary-based pooling map to an upsampling tensor."""
     Nf = max(max(v) for v in pool_dict.values()) + 1
     up_tensor = torch.full((Nf,), -1, dtype=torch.long, device=device)
@@ -53,29 +55,25 @@ class SphereMorphNet(nn.Module):
     def __init__(self, grid):
         super().__init__()
         self.grid = grid
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        self.device = 'cuda:4' if torch.cuda.is_available() else 'cpu'
 
         # --- Pooling/Unpooling maps from grid ---
-        pool_map_162_to_42 = self.grid.pool_maps[1]
-        pool_map_42_to_12 = self.grid.pool_maps[0]
-
-        pool_tensor_lvl0 = dict_to_pool_tensor(pool_map_162_to_42, device=self.device)
-        pool_tensor_lvl1 = dict_to_pool_tensor(pool_map_42_to_12, device=self.device)
-        up_tensor_lvl0 = dict_to_up_tensor(pool_map_162_to_42, device=self.device)
-        up_tensor_lvl1 = dict_to_up_tensor(pool_map_42_to_12, device=self.device)
-
-        pool_maps = [pool_tensor_lvl0, pool_tensor_lvl1]
-        up_maps = [up_tensor_lvl0, up_tensor_lvl1]
+        pool_maps_full = [dict_to_pool_tensor(m) for m in reversed(grid.pool_maps)]
+        up_maps_full = [m.to(self.device) for m in grid.up_maps]
+        # FIXED: Adjusted channels to match actual pooling levels (6 levels for subdivisions=6)
+        channels_full = [64, 128, 256, 512]
 
         # --- Model Components ---
-        self.vsp = VolumetricSphericalParameterization()
+        self.vsp = VolumetricSphericalParameterization(device=self.device)
+        
         self.crsm = CRSM(
             radial_channel_indices=range(22),
             conical_depth_indices=[0, 5, 10, 11, 16, 21],
             aggregation='mean',
             mlp_hidden=(32,),
             mlp_out_dim=16
-        )
+        ).to(self.device)
+        
         self.gat = GATStack(
             in_channels=16,
             hidden_channels=32,
@@ -84,14 +82,16 @@ class SphereMorphNet(nn.Module):
             heads=4,
             dropout=0.1
         ).to(self.device)
-        self.ico_unet = IcoUNet(
+        
+        self.ico_unet = model = IcoUNet(
             in_ch=64,
-            channels=[32, 16],
-            pool_maps=pool_maps,
-            up_maps=up_maps
-        )
-        self.s2c_head = S2CHead(in_channels=64)
-        self.integrator = ScalingAndSquaring(max_scale=0.5)
+            channels=channels_full,
+            pool_maps=pool_maps_full,
+            up_maps=up_maps_full
+        ).to(self.device)
+        
+        self.s2c_head = S2CHead(in_channels=64).to(self.device)
+        self.integrator = ScalingAndSquaring(max_scale=0.5).to(self.device)
         self.full_res_size = (128, 128, 128)
         self.low_res_size = (64, 64, 64)
 
@@ -139,20 +139,45 @@ class SphereMorphNet(nn.Module):
 
 # --- Main Training Script ---
 def main():
+    # --- Setup Logging ---
+    # Create logs directory if it doesn't exist
+    os.makedirs('logs', exist_ok=True)
+    
+    # Setup logging to file
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_filename = f'logs/training_log_{timestamp}.txt'
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_filename),
+            logging.StreamHandler()  # Also log to console for monitoring
+        ]
+    )
+    
+    logger = logging.getLogger(__name__)
+    logger.info("Starting training session...")
+    
     # --- Configuration ---
     DATA_DIR = "/shared/scratch/0/home/v_nishchay_nilabh/oasis_data/scans/" # IMPORTANT: Update this path
     TEMPLATE_ID = "OASIS_OAS1_0406_MR1"
 
     # Check if data directory exists
     if not os.path.isdir(DATA_DIR):
-        print(f"Error: Data directory not found at '{DATA_DIR}'")
+        logger.error(f"Data directory not found at '{DATA_DIR}'")
         return
 
-    LR = 1e-4  # CHANGED: A lower LR is often a good start with complex models
-    EPOCHS = 100
+    LR = 1e-3  # CHANGED: A lower LR is often a good start with complex models
+    EPOCHS = 40
     BATCH_SIZE = 1
-    DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
-    print(f"Using device: {DEVICE}")
+    DEVICE = 'cuda:4' if torch.cuda.is_available() else 'cpu'
+    logger.info(f"Using device: {DEVICE}")
+    logger.info(f"Learning rate: {LR}")
+    logger.info(f"Epochs: {EPOCHS}")
+    logger.info(f"Batch size: {BATCH_SIZE}")
+    logger.info(f"Data directory: {DATA_DIR}")
+    logger.info(f"Template ID: {TEMPLATE_ID}")
 
 
     # --- Data Preparation ---
@@ -162,13 +187,13 @@ def main():
         with open(os.path.join(DATA_DIR, "val.txt"), "r") as f:
             val_ids = [line.strip() for line in f if line.strip()]
     except FileNotFoundError as e:
-        print(f"Error: Could not find {e.filename}. Please ensure train.txt and val.txt exist.")
+        logger.error(f"Could not find {e.filename}. Please ensure train.txt and val.txt exist.")
         return
 
     if TEMPLATE_ID in train_ids: train_ids.remove(TEMPLATE_ID)
     if TEMPLATE_ID in val_ids: val_ids.remove(TEMPLATE_ID)
 
-    print(f"Training scans: {len(train_ids)} | Validation scans: {len(val_ids)}")
+    logger.info(f"Training scans: {len(train_ids)} | Validation scans: {len(val_ids)}")
 
     template_path = os.path.join(DATA_DIR, TEMPLATE_ID, 'seg4_onehot.npy')
 
@@ -177,12 +202,48 @@ def main():
 
     train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=BATCH_SIZE, shuffle=False)
+    
+    logger.info(f"Dataset loaded successfully")
+    logger.info(f"Training dataset size: {len(train_dataset)}")
+    logger.info(f"Validation dataset size: {len(val_dataset)}")
 
     # --- Model Initialization ---
-    grid = IcosahedralGrid(subdivisions=2)
+    grid = IcosahedralGrid(subdivisions=4)
+    logger.info(f"Grid vertices shape: {grid.vertices.shape}")
+    logger.info(f"Grid edge index shape: {grid.edge_index.shape}")
     model = SphereMorphNet(grid=grid).to(DEVICE)
+        # ADDED: He Initialization
+    def init_weights_he(m):
+        """Applies He (Kaiming) initialization to Conv and Linear layers."""
+        if isinstance(m, (nn.Conv1d, nn.Conv2d, nn.Conv3d, nn.Linear)):
+            # Use Kaiming normal initialization for weights
+            nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+            # Initialize bias to zero
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+                
+    # Apply the initialization recursively to all modules
+    model.apply(init_weights_he)
+    logger.info("Model weights initialized with He initialization.")
+    
+    # Load existing best model weights if available
+    loaded_best = False
+    best_val_loss_loaded = float('inf')
+    try:
+        if os.path.exists('best_model.pth'):
+            state_dict = torch.load('best_model.pth', map_location=DEVICE)
+            model.load_state_dict(state_dict)
+            loaded_best = True
+            best_val_loss_loaded = 0.3118
+            logger.info("Loaded weights from 'best_model.pth'. Resuming from best validation loss: 0.3118")
+    except Exception as e:
+        logger.warning(f"Could not load 'best_model.pth': {e}")
+    
     stn = SpatialTransformer(size=(128, 128, 128), device=DEVICE)
     optimizer = torch.optim.Adam(model.parameters(), lr=LR)
+    
+    logger.info("Model initialized successfully")
+    logger.info(f"Total trainable parameters: {sum(p.numel() for p in model.parameters() if p.requires_grad):,}")
     
     # ADDED: Initialize GradScaler for mixed precision
     scaler = GradScaler()
@@ -191,13 +252,19 @@ def main():
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         optimizer,
         T_max=EPOCHS * len(train_loader), # Total number of training steps
-        eta_min=1e-6
+        eta_min=1e-5
     )
 
     max_grad_norm = 1.0
 
     # --- Training Loop ---
-    best_val_loss = float('inf')
+    best_val_loss = best_val_loss_loaded if loaded_best else float('inf')
+    logger.info("Starting training loop...")
+    logger.info(f"Training for {EPOCHS} epochs with {len(train_loader)} batches per epoch")
+    
+    # Track training time
+    import time
+    start_time = time.time()
 
     for epoch in range(EPOCHS):
         # -- Training Phase --
@@ -263,15 +330,34 @@ def main():
 
         avg_val_loss = val_loss / len(val_loader)
 
-        print(f"Epoch {epoch+1}/{EPOCHS} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+        # Log epoch results
+        logger.info(f"Epoch {epoch+1}/{EPOCHS} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
+        
+        # Log learning rate
+        current_lr = scheduler.get_last_lr()[0]
+        logger.info(f"Current learning rate: {current_lr:.2e}")
+        
+        # Log memory usage if on CUDA
+        if torch.cuda.is_available():
+            memory_allocated = torch.cuda.memory_allocated(DEVICE) / 1024**3  # GB
+            memory_reserved = torch.cuda.memory_reserved(DEVICE) / 1024**3    # GB
+            logger.info(f"GPU Memory - Allocated: {memory_allocated:.2f} GB, Reserved: {memory_reserved:.2f} GB")
 
         # -- Save Best Model --
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             torch.save(model.state_dict(), 'best_model.pth')
-            print(f"-> New best model saved with val loss: {best_val_loss:.4f}")
+            logger.info(f"New best model saved with val loss: {best_val_loss:.4f}")
 
-    print("-> Training complete.")
+    logger.info("-> Training complete.")
+    logger.info(f"Best validation loss achieved: {best_val_loss:.4f}")
+    logger.info(f"Training completed successfully in {EPOCHS} epochs")
+    logger.info(f"Log file saved to: {log_filename}")
+
+    # Calculate and log training time
+    end_time = time.time()
+    training_time = end_time - start_time
+    logger.info(f"Total training time: {training_time:.2f} seconds")
 
 
 if __name__ == '__main__':

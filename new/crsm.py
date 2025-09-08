@@ -35,8 +35,13 @@ class CRSM(nn.Module):
         x = data.x
         edge_index = data.edge_index
         device = x.device
-        radial = x[:, self.radial_idx]
-        ci = self.conical_idx
+        
+        # Move indices to the same device as input tensor
+        radial_idx = self.radial_idx.to(device)
+        conical_idx = self.conical_idx.to(device)
+        
+        radial = x[:, radial_idx]
+        ci = conical_idx
         conical_feats = x[:, ci]
         if edge_index is None:
             agg = conical_feats

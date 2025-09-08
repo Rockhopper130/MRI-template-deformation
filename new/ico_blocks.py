@@ -2,8 +2,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
 class IcosahedralPool(nn.Module):
     def __init__(self, pool_map: torch.LongTensor, mode: str = "avg"):
         super().__init__()
@@ -103,22 +101,29 @@ class IcoUNet(nn.Module):
         chs = [in_ch] + channels
         for i in range(levels):
             self.down_blocks.append(IcoDownBlock(chs[i], chs[i+1], use_bn=use_bn))
-            self.pools.append(IcosahedralPool(pool_maps[i].to(device), mode=pool_mode))
+            self.pools.append(IcosahedralPool(pool_maps[i], mode=pool_mode))
         self.bottleneck = IcoDownBlock(chs[-1], chs[-1]*2, use_bn=use_bn)
-                # --- CORRECTED LOOP ---
-        for i in range(levels-1, -1, -1):
-            # The coarse_ch for the current level 'i' is the out_ch of the level 'i+1' block.
-            # The out_ch of the block at level 'j' is chs[j+1].
-            # So, the coarse_ch for level 'i' is chs[i+1+1] = chs[i+2].
-            coarse_ch = chs[i+1] * 2 if i == levels - 1 else chs[i+2]
-            skip_ch = chs[i+1]
-            out_ch = chs[i+1]
-            self.up_blocks.append(IcoUpBlock(coarse_ch, skip_ch, out_ch, up_maps[i].to(device), use_bn=use_bn))
+        
+        for i in range(levels - 1, -1, -1):
+            map_idx = (levels - 1) - i
+            if i == levels - 1:
+                coarse_ch = chs[-1] * 2  # Bottleneck output channels
+            else:
+                coarse_ch = chs[i + 2]  # Previous up block output channels
+            skip_ch = chs[i + 1]
+            out_ch = chs[i + 1]
             
-        # The final_conv input channel should be the output of the last up-block (i=0)
-        # The out_ch for the i=0 block is chs[0+1] = chs[1].
+            self.up_blocks.append(
+                IcoUpBlock(
+                    coarse_ch, 
+                    skip_ch, 
+                    out_ch, 
+                    up_maps[map_idx], 
+                    use_bn=use_bn
+                )
+            )
         self.final_conv = nn.Conv1d(chs[1], in_ch, 1)
-
+        
     def forward(self, x):
         # x: [B, C_in, N0]
         skips = []
@@ -128,6 +133,8 @@ class IcoUNet(nn.Module):
             skips.append(cur)
             cur = pool(cur)
         cur = self.bottleneck(cur)
+
+        # The upsampling path will now work correctly
         for up in self.up_blocks:
             skip = skips.pop()
             cur = up(cur, skip)
