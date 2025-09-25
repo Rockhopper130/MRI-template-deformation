@@ -51,16 +51,19 @@ class S2CHead(nn.Module):
         max_rho = float(vert_rho.max().item())
         D, H, W = out_size
         if voxel_origin is None or voxel_spacing is None:
-            span = max_rho * 1.05
-            xs = torch.linspace(-span, span, W, device=device)
-            ys = torch.linspace(-span, span, H, device=device)
-            zs = torch.linspace(-span, span, D, device=device)
+            # Assume voxel index grid centered at zero in normalized sense; we build voxel coordinates
+            xs = torch.arange(W, device=device, dtype=verts.dtype)
+            ys = torch.arange(H, device=device, dtype=verts.dtype)
+            zs = torch.arange(D, device=device, dtype=verts.dtype)
         else:
-            xs = voxel_origin[0] + torch.arange(W, device=device) * voxel_spacing[0]
-            ys = voxel_origin[1] + torch.arange(H, device=device) * voxel_spacing[1]
-            zs = voxel_origin[2] + torch.arange(D, device=device) * voxel_spacing[2]
-        grid_x, grid_y, grid_z = torch.meshgrid(xs, ys, zs, indexing='xy')
+            xs = voxel_origin[0] + torch.arange(W, device=device, dtype=verts.dtype) * voxel_spacing[0]
+            ys = voxel_origin[1] + torch.arange(H, device=device, dtype=verts.dtype) * voxel_spacing[1]
+            zs = voxel_origin[2] + torch.arange(D, device=device, dtype=verts.dtype) * voxel_spacing[2]
+        # Use ij indexing to match (z,y,x) order, then build (x,y,z) voxel coords and center them
+        grid_z, grid_y, grid_x = torch.meshgrid(zs, ys, xs, indexing='ij')
         vox_coords = torch.stack([grid_x.reshape(-1), grid_y.reshape(-1), grid_z.reshape(-1)], dim=1)
+        center_xyz = torch.tensor([(W - 1) * 0.5, (H - 1) * 0.5, (D - 1) * 0.5], device=device, dtype=verts.dtype)
+        vox_coords = vox_coords - center_xyz
         N = vox_coords.shape[0]
         rho_v, theta_v, phi_v = cartesian_to_spherical(vox_coords)
         e_r_v, e_theta_v, e_phi_v = spherical_unit_vectors(theta_v, phi_v)

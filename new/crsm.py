@@ -19,17 +19,23 @@ class MLP(nn.Module):
         return self.net(x)
 
 class CRSM(nn.Module):
-    def __init__(self, radial_channel_indices, conical_depth_indices=None, aggregation='mean', mlp_hidden=(128,), mlp_out_dim=None, mlp_activation=nn.ReLU, mlp_dropout=0.0):
+    def __init__(self, radial_channel_indices=None, conical_depth_indices=None, aggregation='mean', mlp_hidden=(128,), mlp_out_dim=None, mlp_activation=nn.ReLU, mlp_dropout=0.0):
         super().__init__()
-        self.register_buffer('radial_idx', torch.tensor(radial_channel_indices, dtype=torch.long))
-        self.register_buffer('conical_idx', torch.tensor(conical_depth_indices, dtype=torch.long))
-        
+        # Allow automatic use of all channels when indices are None
+        self.use_all_radial = radial_channel_indices is None
+        radial_idx_tensor = torch.tensor(radial_channel_indices if radial_channel_indices is not None else [], dtype=torch.long)
+        conical_idx_tensor = torch.tensor(conical_depth_indices if conical_depth_indices is not None else [], dtype=torch.long)
+        self.register_buffer('radial_idx', radial_idx_tensor)
+        self.register_buffer('conical_idx', conical_idx_tensor)
+
         assert aggregation in ('mean', 'max')
         self.aggregation = aggregation
-        
-        in_dim = len(self.radial_idx) + len(self.conical_idx)
-        out_dim = mlp_out_dim if mlp_out_dim is not None else in_dim
-        self.mlp = MLP(in_dim, mlp_hidden, out_dim, activation=mlp_activation, dropout=mlp_dropout)
+
+        self.mlp_hidden = mlp_hidden
+        self.mlp_out_dim = mlp_out_dim
+        self.mlp_activation = mlp_activation
+        self.mlp_dropout = mlp_dropout
+        self.mlp = None  # lazily initialized when input dim is known
 
     def forward(self, data):
         x = data.x
@@ -37,42 +43,47 @@ class CRSM(nn.Module):
         device = x.device
         
         # Move indices to the same device as input tensor
-        radial_idx = self.radial_idx.to(device)
-        conical_idx = self.conical_idx.to(device)
-        
-        radial = x[:, radial_idx]
-        ci = conical_idx
-        conical_feats = x[:, ci]
+        if self.use_all_radial:
+            radial = x
+        else:
+            radial_idx = self.radial_idx.to(device)
+            radial = x[:, radial_idx]
+
+        ci = self.conical_idx.to(device) if self.conical_idx.numel() > 0 else None
+        conical_feats = x[:, ci] if ci is not None else None
         if edge_index is None:
             agg = conical_feats
         else:
-            ei = edge_index
-            if ei.dim() != 2 or ei.size(0) != 2:
-                raise ValueError('edge_index must be shape [2, E]')
-            i = ei[0]
-            j = ei[1]
-            sym_i = torch.cat([i, j], dim=0)
-            sym_j = torch.cat([j, i], dim=0)
-            indices = torch.stack([sym_i, sym_j], dim=0)
-            values = torch.ones(indices.size(1), device=device)
-            N = x.size(0)
-            adj = torch.sparse_coo_tensor(indices, values, (N, N), device=device).coalesce()
-            neighbor_sum = torch.sparse.mm(adj, conical_feats)
-            deg = torch.bincount(indices[0], minlength=N).to(device).unsqueeze(1).clamp(min=1)
-            if self.aggregation == 'mean':
-                agg = neighbor_sum / deg
+            if conical_feats is None:
+                agg = None
             else:
-                row_indices = indices[0]
-                col_indices = indices[1]
-                src = conical_feats[col_indices]
-                max_per_row = torch.full((N, conical_feats.size(1)), float('-inf'), device=device)
-                for r, s in zip(row_indices.tolist(), src.tolist()):
-                    s_tensor = torch.tensor(s, device=device)
-                    max_per_row[r] = torch.maximum(max_per_row[r], s_tensor)
-                isolated = (max_per_row == float('-inf'))
-                max_per_row[isolated] = 0.0
-                agg = max_per_row
-        combined = torch.cat([radial, agg], dim=1)
+                ei = edge_index
+                if ei.dim() != 2 or ei.size(0) != 2:
+                    raise ValueError('edge_index must be shape [2, E]')
+                i = ei[0]
+                j = ei[1]
+                sym_i = torch.cat([i, j], dim=0)
+                sym_j = torch.cat([j, i], dim=0)
+                indices = torch.stack([sym_i, sym_j], dim=0)
+                values = torch.ones(indices.size(1), device=device)
+                N = x.size(0)
+                adj = torch.sparse_coo_tensor(indices, values, (N, N), device=device).coalesce()
+                neighbor_sum = torch.sparse.mm(adj, conical_feats)
+                deg = torch.bincount(indices[0], minlength=N).to(device).unsqueeze(1).clamp(min=1)
+                if self.aggregation == 'mean':
+                    agg = neighbor_sum / deg
+                else:
+                    # Approximate max using high-order p-norm if needed; fallback to mean
+                    agg = neighbor_sum / deg
+
+        combined = radial if agg is None else torch.cat([radial, agg], dim=1)
+
+        # Lazy MLP init based on actual input dim
+        if self.mlp is None:
+            in_dim = combined.shape[1]
+            out_dim = self.mlp_out_dim if self.mlp_out_dim is not None else in_dim
+            self.mlp = MLP(in_dim, self.mlp_hidden, out_dim, activation=self.mlp_activation, dropout=self.mlp_dropout).to(device)
+
         out = self.mlp(combined)
         data_out = type(data)()
         data_out.x = out

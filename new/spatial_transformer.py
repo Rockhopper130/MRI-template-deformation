@@ -6,7 +6,7 @@ import torch.nn.functional as F
 class SpatialTransformer(nn.Module):
     """
     A true dense STN for 3D one-hot maps, with an identity grid buffer
-    and nearest‐neighbor sampling for crisp labels.
+    and nearest-neighbor sampling for crisp labels.
     """
     def __init__(self, size, device='cpu'):
         """
@@ -45,6 +45,6 @@ class SpatialTransformer(nn.Module):
             moving, warped_grid,
             mode='bilinear',
             padding_mode='border',
-            align_corners=False
+            align_corners=True
         )
         return warped
