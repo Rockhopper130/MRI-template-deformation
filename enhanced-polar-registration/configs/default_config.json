@@ -1,0 +1,55 @@
+{
+  "model": {
+    "in_channels": 10,
+    "out_channels": 3,
+    "base_channels": 16,
+    "num_scales": 2,
+    "use_polar_processing": true,
+    "use_attention": false,
+    "interpolation_mode": "bilinear"
+  },
+  "data": {
+    "train_txt": "/shared/scratch/0/home/v_nishchay_nilabh/oasis_data/train.txt",
+    "val_txt": "/shared/scratch/0/home/v_nishchay_nilabh/oasis_data/val.txt",
+    "template_path": "/shared/scratch/0/home/v_nishchay_nilabh/oasis_data/scans/OASIS_OAS1_0406_MR1/seg4_onehot.npy",
+    "target_size": [64, 64, 64],
+    "use_augmentation": true,
+    "augmentation_prob": 0.5,
+    "cache_data": false,
+    "num_workers": 0,
+    "use_multi_scale": false,
+    "multi_scale_levels": [1, 2, 4],
+    "use_balanced_sampling": false
+  },
+  "loss": {
+    "dice_weight": 0.4,
+    "ce_weight": 0.2,
+    "bending_weight": 0.1,
+    "jacobian_weight": 0.05,
+    "polar_weight": 0.1,
+    "anatomical_weight": 0.0,
+    "gradient_weight": 0.0
+  },
+  "training": {
+    "epochs": 100,
+    "batch_size": 1,
+    "learning_rate": 1e-3,
+    "weight_decay": 1e-4,
+    "optimizer": "adamw",
+    "betas": [0.9, 0.999],
+    "momentum": 0.9,
+    "scheduler_type": "cosine",
+    "min_lr": 1e-6,
+    "grad_clip_norm": 1.0,
+    "early_stopping_patience": 20,
+    "early_stopping_min_delta": 1e-6,
+    "save_dir": "./checkpoints",
+    "log_dir": "./logs",
+    "log_interval": 10,
+    "log_level": "INFO",
+    "use_wandb": false,
+    "wandb_project": "enhanced-polar-registration",
+    "experiment_name": "enhanced-polar-reg",
+    "plot_curves": true
+  }
+}

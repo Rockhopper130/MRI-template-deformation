@@ -108,6 +108,17 @@ class SphereMorphNet(nn.Module):
         moving_volume = moving_volume.to(self.device)
         fixed_volume = fixed_volume.to(self.device)
 
+        # DataLoader with batch_size=1 yields volumes shaped [1, D, H, W].
+        # VSP expects [D, H, W], so squeeze the batch dimension when present.
+        if moving_volume.dim() == 4:
+            if moving_volume.size(0) != 1:
+                raise ValueError("Only batch_size=1 is supported for volumetric parameterization.")
+            moving_volume = moving_volume.squeeze(0)
+        if fixed_volume.dim() == 4:
+            if fixed_volume.size(0) != 1:
+                raise ValueError("Only batch_size=1 is supported for volumetric parameterization.")
+            fixed_volume = fixed_volume.squeeze(0)
+
         grid_vertices = self.grid.vertices.to(self.device)
         grid_edge_index = self.grid.edge_index.to(self.device)
 

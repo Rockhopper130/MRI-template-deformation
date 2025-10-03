@@ -41,6 +41,7 @@ class CRSM(nn.Module):
         x = data.x
         edge_index = data.edge_index
         device = x.device
+        orig_dtype = x.dtype
         
         # Move indices to the same device as input tensor
         if self.use_all_radial:
@@ -49,12 +50,14 @@ class CRSM(nn.Module):
             radial_idx = self.radial_idx.to(device)
             radial = x[:, radial_idx]
 
+        # Perform sparse aggregation in float32 to avoid unsupported half-precision ops
+        x_fp32 = x.float()
         ci = self.conical_idx.to(device) if self.conical_idx.numel() > 0 else None
-        conical_feats = x[:, ci] if ci is not None else None
+        conical_feats_fp32 = x_fp32[:, ci] if ci is not None else None
         if edge_index is None:
-            agg = conical_feats
+            agg = conical_feats_fp32.to(orig_dtype) if conical_feats_fp32 is not None else None
         else:
-            if conical_feats is None:
+            if conical_feats_fp32 is None:
                 agg = None
             else:
                 ei = edge_index
@@ -65,16 +68,18 @@ class CRSM(nn.Module):
                 sym_i = torch.cat([i, j], dim=0)
                 sym_j = torch.cat([j, i], dim=0)
                 indices = torch.stack([sym_i, sym_j], dim=0)
-                values = torch.ones(indices.size(1), device=device)
+                values = torch.ones(indices.size(1), device=device, dtype=torch.float32)
                 N = x.size(0)
                 adj = torch.sparse_coo_tensor(indices, values, (N, N), device=device).coalesce()
-                neighbor_sum = torch.sparse.mm(adj, conical_feats)
-                deg = torch.bincount(indices[0], minlength=N).to(device).unsqueeze(1).clamp(min=1)
+                neighbor_sum_fp32 = torch.sparse.mm(adj, conical_feats_fp32)
+                deg = torch.bincount(indices[0], minlength=N).to(device)
+                deg = deg.clamp(min=1).to(torch.float32).unsqueeze(1)
                 if self.aggregation == 'mean':
-                    agg = neighbor_sum / deg
+                    agg_fp32 = neighbor_sum_fp32 / deg
                 else:
                     # Approximate max using high-order p-norm if needed; fallback to mean
-                    agg = neighbor_sum / deg
+                    agg_fp32 = neighbor_sum_fp32 / deg
+                agg = agg_fp32.to(orig_dtype)
 
         combined = radial if agg is None else torch.cat([radial, agg], dim=1)
 

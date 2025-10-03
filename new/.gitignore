@@ -1,0 +1,235 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# Model files and checkpoints
+*.pth
+*.pt
+*.ckpt
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.joblib
+*.model
+*.weights
+*.bin
+*.safetensors
+
+# Data files
+*.npy
+*.npz
+*.mat
+*.csv
+*.tsv
+*.json
+*.jsonl
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.joblib
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+*.out
+*.err
+*.txt
+!requirements.txt
+!README.txt
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.atom/
+.brackets.json
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Wandb
+wandb/
+.wandb/
+
+# Tensorboard
+runs/
+tensorboard_logs/
+*.tfevent
+
+# Images and visualizations
+images/
+plots/
+figures/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+*.pdf
+*.eps
+*.tiff
+*.bmp
+
+# Test outputs
+test_outputs/
+outputs/
+results/
+checkpoints/
+saved_models/
+
+# Large data directories
+data/
+datasets/
+raw_data/
+processed_data/
+
+# Configuration files with sensitive information
+config.json
+secrets.json
+.env.local
+.env.production
+
+# Backup files
+*.bak
+*.backup
+*.old
+*.orig
+
+# Compiled extensions
+*.so
+*.dylib
+*.dll
+
+# Documentation builds
+docs/_build/
+site/
+
+# Specific to this project
+# Keep important images but ignore generated ones
+!images/ico.png
+!images/loss_plot.png
+images/*.gif
+images/*.png
+!images/ico.png
+!images/loss_plot.png
+
+# ignore model files
+*.pth
